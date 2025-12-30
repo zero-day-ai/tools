@@ -1,0 +1,6 @@
+{
+  "targets": "127.0.0.1",
+  "ports": "22,80,443",
+  "scan_type": "connect",
+  "timing": "aggressive"
+}

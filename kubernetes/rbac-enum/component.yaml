@@ -1,0 +1,25 @@
+kind: tool
+name: rbac-enum
+version: 1.0.0
+description: Kubernetes RBAC enumeration and permission testing for security assessment
+author: Gibson Security Team
+license: MIT
+repository: https://github.com/zero-day-ai/gibson-tools-official
+
+build:
+  command: go build -o rbac-enum .
+  artifacts:
+    - rbac-enum
+  workdir: .
+
+runtime:
+  type: go
+  entrypoint: ./rbac-enum
+  port: 0
+
+dependencies:
+  gibson: ">=1.0.0"
+  system:
+    - kubectl  # kubectl binary must be installed
+  env:
+    KUBECONFIG: ""  # Optional kubeconfig path

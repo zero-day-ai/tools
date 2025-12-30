@@ -1,0 +1,24 @@
+kind: tool
+name: nmap
+version: 1.0.0
+description: Network scanner for port discovery, service detection, and OS fingerprinting
+author: Gibson Security Team
+license: MIT
+repository: https://github.com/zero-day-ai/gibson-tools-official
+
+build:
+  command: go build -o nmap .
+  artifacts:
+    - nmap
+  workdir: .
+
+runtime:
+  type: go
+  entrypoint: ./nmap
+  port: 0
+
+dependencies:
+  gibson: ">=1.0.0"
+  system:
+    - nmap  # nmap must be installed (apt install nmap)
+  env: {}

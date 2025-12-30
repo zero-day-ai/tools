@@ -1,0 +1,25 @@
+kind: tool
+name: network-policy-test
+version: 1.0.0
+description: Network policy testing and bypass detection for Kubernetes clusters
+author: Gibson Security Team
+license: MIT
+repository: https://github.com/zero-day-ai/gibson-tools-official
+
+build:
+  command: go build -o network-policy-test .
+  artifacts:
+    - network-policy-test
+  workdir: .
+
+runtime:
+  type: go
+  entrypoint: ./network-policy-test
+  port: 0
+
+dependencies:
+  gibson: ">=1.0.0"
+  system:
+    - kubectl  # kubectl for network policy enumeration
+  env:
+    KUBECONFIG: ""

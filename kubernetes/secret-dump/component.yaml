@@ -1,0 +1,25 @@
+kind: tool
+name: secret-dump
+version: 1.0.0
+description: Kubernetes secret enumeration and extraction tool for security testing
+author: Gibson Security Team
+license: MIT
+repository: https://github.com/zero-day-ai/gibson-tools-official
+
+build:
+  command: go build -o secret-dump .
+  artifacts:
+    - secret-dump
+  workdir: .
+
+runtime:
+  type: go
+  entrypoint: ./secret-dump
+  port: 0
+
+dependencies:
+  gibson: ">=1.0.0"
+  system:
+    - kubectl
+  env:
+    KUBECONFIG: ""

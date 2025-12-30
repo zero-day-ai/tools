@@ -1,0 +1,24 @@
+kind: tool
+name: masscan
+version: 1.0.0
+description: High-speed TCP port scanner for large-scale network scanning
+author: Gibson Security Team
+license: MIT
+repository: https://github.com/zero-day-ai/gibson-tools-official
+
+build:
+  command: go build -o masscan .
+  artifacts:
+    - masscan
+  workdir: .
+
+runtime:
+  type: go
+  entrypoint: ./masscan
+  port: 0
+
+dependencies:
+  gibson: ">=1.0.0"
+  system:
+    - masscan  # masscan must be installed (apt install masscan)
+  env: {}
