@@ -13,7 +13,6 @@ import (
 	"time"
 
 	sdkinput "github.com/zero-day-ai/sdk/input"
-	"github.com/zero-day-ai/sdk/toolerr"
 	"github.com/zero-day-ai/sdk/exec"
 	"github.com/zero-day-ai/sdk/tool"
 	"github.com/zero-day-ai/sdk/types"

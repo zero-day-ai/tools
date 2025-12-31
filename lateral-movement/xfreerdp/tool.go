@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/zero-day-ai/sdk/exec"
+	sdkexec "github.com/zero-day-ai/sdk/exec"
 	"github.com/zero-day-ai/sdk/tool"
 	"github.com/zero-day-ai/sdk/types"
 )
@@ -95,7 +95,7 @@ func (t *ToolImpl) Execute(ctx context.Context, input map[string]any) (map[strin
 	// Execute xfreerdp
 	// Note: xfreerdp typically runs interactively, but for automation we use
 	// specific flags to attempt connection and report status
-	result, err := exec.Run(ctx, exec.Config{
+	result, err := sdkexec.Run(ctx, sdkexec.Config{
 		Command: BinaryName,
 		Args:    args,
 		Timeout: timeout,
@@ -135,7 +135,7 @@ func (t *ToolImpl) Execute(ctx context.Context, input map[string]any) (map[strin
 // Health checks if xfreerdp binary exists
 func (t *ToolImpl) Health(ctx context.Context) types.HealthStatus {
 	// Check if xfreerdp binary exists
-	if !exec.BinaryExists(BinaryName) {
+	if !sdkexec.BinaryExists(BinaryName) {
 		return types.NewUnhealthyStatus(
 			fmt.Sprintf("%s binary not found in PATH", BinaryName),
 			map[string]any{
@@ -213,7 +213,7 @@ func buildXfreerdpArgs(target, username, password, hash, domain string, port int
 
 // extractSessionID attempts to extract a session identifier from command output
 // For xfreerdp, we use the process ID as the session identifier
-func extractSessionID(result *exec.Result) string {
+func extractSessionID(result *sdkexec.Result) string {
 	// In a real implementation, xfreerdp runs as an interactive process
 	// For now, we return a placeholder indicating successful connection
 	// In production, you might want to track the background process ID
@@ -221,7 +221,7 @@ func extractSessionID(result *exec.Result) string {
 }
 
 // parseXfreerdpError extracts error information from xfreerdp output
-func parseXfreerdpError(result *exec.Result) string {
+func parseXfreerdpError(result *sdkexec.Result) string {
 	stderr := string(result.Stderr)
 	stdout := string(result.Stdout)
 	combined := stderr + "\n" + stdout

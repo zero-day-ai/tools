@@ -10,7 +10,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/zero-day-ai/sdk/exec"
+	sdkexec "github.com/zero-day-ai/sdk/exec"
 	"github.com/zero-day-ai/sdk/tool"
 	"github.com/zero-day-ai/sdk/types"
 )
@@ -86,7 +86,7 @@ func (t *ToolImpl) Execute(ctx context.Context, input map[string]any) (map[strin
 	}
 
 	// Execute rclone
-	result, err := exec.Run(ctx, exec.Config{
+	result, err := sdkexec.Run(ctx, sdkexec.Config{
 		Command: BinaryName,
 		Args:    args,
 		Timeout: 0, // No timeout, let context handle cancellation
