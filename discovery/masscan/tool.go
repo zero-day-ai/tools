@@ -9,9 +9,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/zero-day-ai/gibson-tools-official/pkg/common"
-	"github.com/zero-day-ai/gibson-tools-official/pkg/executor"
-	"github.com/zero-day-ai/gibson-tools-official/pkg/health"
+	sdkinput "github.com/zero-day-ai/sdk/input"
+	"github.com/zero-day-ai/sdk/toolerr"
+	"github.com/zero-day-ai/sdk/exec"
+	"github.com/zero-day-ai/sdk/health"
 	"github.com/zero-day-ai/sdk/tool"
 	"github.com/zero-day-ai/sdk/types"
 )
@@ -61,26 +62,26 @@ func (t *ToolImpl) Execute(ctx context.Context, input map[string]any) (map[strin
 	startTime := time.Now()
 
 	// Extract input parameters
-	targets := common.GetString(input, "targets", "")
+	targets := sdkinput.GetString(input, "targets", "")
 	if targets == "" {
 		return nil, fmt.Errorf("targets is required")
 	}
 
-	ports := common.GetString(input, "ports", "")
+	ports := sdkinput.GetString(input, "ports", "")
 	if ports == "" {
 		return nil, fmt.Errorf("ports is required")
 	}
 
-	rate := common.GetInt(input, "rate", 100)
-	banners := common.GetBool(input, "banners", false)
+	rate := sdkinput.GetInt(input, "rate", 100)
+	banners := sdkinput.GetBool(input, "banners", false)
 
 	// Create temp file for JSON output
 	tmpFile, err := os.CreateTemp("", "masscan-*.json")
 	if err != nil {
-		return nil, &common.ToolError{
+		return nil, &toolerr.Error{
 			Tool:      ToolName,
 			Operation: "create_temp_file",
-			Code:      common.ErrCodeExecutionFailed,
+			Code:      toolerr.ErrCodeExecutionFailed,
 			Message:   fmt.Sprintf("failed to create temp file: %v", err),
 		}
 	}
@@ -91,17 +92,17 @@ func (t *ToolImpl) Execute(ctx context.Context, input map[string]any) (map[strin
 	args := buildMasscanArgs(targets, ports, rate, banners, tmpFile.Name())
 
 	// Execute masscan
-	result, err := executor.Execute(ctx, executor.Config{
+	result, err := exec.Run(ctx, exec.Config{
 		Command: BinaryName,
 		Args:    args,
-		Timeout: common.DefaultTimeout(),
+		Timeout: sdkinput.DefaultTimeout(),
 	})
 
 	if err != nil {
-		return nil, &common.ToolError{
+		return nil, &toolerr.Error{
 			Tool:      ToolName,
 			Operation: "execute",
-			Code:      common.ErrCodeExecutionFailed,
+			Code:      toolerr.ErrCodeExecutionFailed,
 			Message:   fmt.Sprintf("failed to execute masscan: %v", err),
 			Details:   map[string]any{"exit_code": result.ExitCode},
 		}
@@ -110,10 +111,10 @@ func (t *ToolImpl) Execute(ctx context.Context, input map[string]any) (map[strin
 	// Read and parse JSON output file
 	outputData, err := os.ReadFile(tmpFile.Name())
 	if err != nil {
-		return nil, &common.ToolError{
+		return nil, &toolerr.Error{
 			Tool:      ToolName,
 			Operation: "read_output",
-			Code:      common.ErrCodeParseError,
+			Code:      toolerr.ErrCodeParseError,
 			Message:   fmt.Sprintf("failed to read masscan output: %v", err),
 		}
 	}
@@ -121,10 +122,10 @@ func (t *ToolImpl) Execute(ctx context.Context, input map[string]any) (map[strin
 	// Parse JSON output
 	hosts, totalPorts, err := parseMasscanOutput(outputData)
 	if err != nil {
-		return nil, &common.ToolError{
+		return nil, &toolerr.Error{
 			Tool:      ToolName,
 			Operation: "parse",
-			Code:      common.ErrCodeParseError,
+			Code:      toolerr.ErrCodeParseError,
 			Message:   fmt.Sprintf("failed to parse masscan output: %v", err),
 		}
 	}

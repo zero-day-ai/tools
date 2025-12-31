@@ -7,9 +7,10 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/zero-day-ai/gibson-tools-official/pkg/common"
-	"github.com/zero-day-ai/gibson-tools-official/pkg/executor"
-	"github.com/zero-day-ai/gibson-tools-official/pkg/health"
+	sdkinput "github.com/zero-day-ai/sdk/input"
+	"github.com/zero-day-ai/sdk/toolerr"
+	"github.com/zero-day-ai/sdk/exec"
+	"github.com/zero-day-ai/sdk/health"
 	"github.com/zero-day-ai/sdk/tool"
 	"github.com/zero-day-ai/sdk/types"
 )
@@ -61,21 +62,21 @@ func (t *ToolImpl) Execute(ctx context.Context, input map[string]any) (map[strin
 	startTime := time.Now()
 
 	// Extract and validate input parameters
-	target := common.GetString(input, "target", "")
+	target := sdkinput.GetString(input, "target", "")
 	if target == "" {
 		return nil, fmt.Errorf("target is required")
 	}
 
-	service := common.GetString(input, "service", "")
+	service := sdkinput.GetString(input, "service", "")
 	if service == "" {
 		return nil, fmt.Errorf("service is required")
 	}
 
 	// Validate that we have at least one username and password source
-	username := common.GetString(input, "username", "")
-	usernameFile := common.GetString(input, "username_file", "")
-	password := common.GetString(input, "password", "")
-	passwordFile := common.GetString(input, "password_file", "")
+	username := sdkinput.GetString(input, "username", "")
+	usernameFile := sdkinput.GetString(input, "username_file", "")
+	password := sdkinput.GetString(input, "password", "")
+	passwordFile := sdkinput.GetString(input, "password_file", "")
 
 	if username == "" && usernameFile == "" {
 		return nil, fmt.Errorf("either username or username_file must be provided")
@@ -85,22 +86,22 @@ func (t *ToolImpl) Execute(ctx context.Context, input map[string]any) (map[strin
 		return nil, fmt.Errorf("either password or password_file must be provided")
 	}
 
-	port := common.GetInt(input, "port", 0)
-	threads := common.GetInt(input, "threads", 16)
-	timeout := common.GetInt(input, "timeout", 30)
-	httpPath := common.GetString(input, "http_path", "")
-	httpForm := common.GetString(input, "http_form", "")
+	port := sdkinput.GetInt(input, "port", 0)
+	threads := sdkinput.GetInt(input, "threads", 16)
+	timeout := sdkinput.GetInt(input, "timeout", 30)
+	httpPath := sdkinput.GetString(input, "http_path", "")
+	httpForm := sdkinput.GetString(input, "http_form", "")
 
 	// Build command arguments
 	args := buildHydraArgs(target, service, port, username, usernameFile, password, passwordFile, threads, timeout, httpPath, httpForm)
 
 	// Execute hydra with JSON output
-	execTimeout := common.DefaultTimeout()
+	execTimeout := sdkinput.DefaultTimeout()
 	if timeout > 0 {
 		execTimeout = time.Duration(timeout*threads+60) * time.Second // Account for threads and add buffer
 	}
 
-	result, err := executor.Execute(ctx, executor.Config{
+	result, err := exec.Run(ctx, exec.Config{
 		Command: BinaryName,
 		Args:    args,
 		Timeout: execTimeout,
@@ -109,10 +110,10 @@ func (t *ToolImpl) Execute(ctx context.Context, input map[string]any) (map[strin
 	// Hydra returns exit code 0 if credentials found, 1 if none found
 	// We consider both as successful execution, only actual errors are failures
 	if err != nil && result.ExitCode != 0 && result.ExitCode != 1 {
-		return nil, &common.ToolError{
+		return nil, &toolerr.Error{
 			Tool:      ToolName,
 			Operation: "execute",
-			Code:      common.ErrCodeExecutionFailed,
+			Code:      toolerr.ErrCodeExecutionFailed,
 			Message:   fmt.Sprintf("failed to execute hydra: %v", err),
 			Details:   map[string]any{"exit_code": result.ExitCode, "stderr": string(result.Stderr)},
 		}
@@ -121,10 +122,10 @@ func (t *ToolImpl) Execute(ctx context.Context, input map[string]any) (map[strin
 	// Parse JSON output
 	credentials, attempts, parseErr := parseHydraOutput(result.Stdout)
 	if parseErr != nil {
-		return nil, &common.ToolError{
+		return nil, &toolerr.Error{
 			Tool:      ToolName,
 			Operation: "parse",
-			Code:      common.ErrCodeParseError,
+			Code:      toolerr.ErrCodeParseError,
 			Message:   fmt.Sprintf("failed to parse hydra output: %v", parseErr),
 		}
 	}

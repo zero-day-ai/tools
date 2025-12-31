@@ -3,7 +3,6 @@ module github.com/zero-day-ai/gibson-tools-official/initial-access/sqlmap
 go 1.24.4
 
 require (
-	github.com/zero-day-ai/gibson-tools-official/pkg v0.0.0
 	github.com/zero-day-ai/sdk v0.1.0
 )
 
@@ -20,4 +19,4 @@ require (
 	google.golang.org/protobuf v1.36.11 // indirect
 )
 
-replace github.com/zero-day-ai/gibson-tools-official/pkg => ../../pkg
+replace github.com/zero-day-ai/sdk => ../../../sdk

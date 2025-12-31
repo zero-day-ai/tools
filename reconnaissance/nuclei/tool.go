@@ -7,9 +7,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/zero-day-ai/gibson-tools-official/pkg/common"
-	"github.com/zero-day-ai/gibson-tools-official/pkg/executor"
-	"github.com/zero-day-ai/gibson-tools-official/pkg/health"
+	sdkinput "github.com/zero-day-ai/sdk/input"
+	"github.com/zero-day-ai/sdk/toolerr"
+	"github.com/zero-day-ai/sdk/exec"
+	"github.com/zero-day-ai/sdk/health"
 	"github.com/zero-day-ai/sdk/tool"
 	"github.com/zero-day-ai/sdk/types"
 )
@@ -60,35 +61,35 @@ func (t *ToolImpl) Execute(ctx context.Context, input map[string]any) (map[strin
 	startTime := time.Now()
 
 	// Extract input parameters
-	target := common.GetString(input, "target", "")
+	target := sdkinput.GetString(input, "target", "")
 	if target == "" {
 		return nil, fmt.Errorf("target is required")
 	}
 
-	templates := common.GetStringSlice(input, "templates")
-	severity := common.GetStringSlice(input, "severity")
-	tags := common.GetStringSlice(input, "tags")
-	timeout := common.GetTimeout(input, "timeout", common.DefaultTimeout())
-	rateLimit := common.GetInt(input, "rate_limit", 150)
+	templates := sdkinput.GetStringSlice(input, "templates")
+	severity := sdkinput.GetStringSlice(input, "severity")
+	tags := sdkinput.GetStringSlice(input, "tags")
+	timeout := sdkinput.GetTimeout(input, "timeout", sdkinput.DefaultTimeout())
+	rateLimit := sdkinput.GetInt(input, "rate_limit", 150)
 
 	// Build nuclei command arguments
 	args := buildArgs(target, templates, severity, tags, rateLimit)
 
 	// Execute nuclei command
-	result, err := executor.Execute(ctx, executor.Config{
+	result, err := exec.Run(ctx, exec.Config{
 		Command: BinaryName,
 		Args:    args,
 		Timeout: timeout,
 	})
 
 	if err != nil {
-		return nil, common.NewToolError(ToolName, "execute", common.ErrCodeExecutionFailed, err.Error()).WithCause(err)
+		return nil, toolerr.New(ToolName, "execute", toolerr.ErrCodeExecutionFailed, err.Error()).WithCause(err)
 	}
 
 	// Parse nuclei JSON output
 	output, err := parseOutput(result.Stdout, target)
 	if err != nil {
-		return nil, common.NewToolError(ToolName, "parse", common.ErrCodeParseError, err.Error()).WithCause(err)
+		return nil, toolerr.New(ToolName, "parse", toolerr.ErrCodeParseError, err.Error()).WithCause(err)
 	}
 
 	// Add scan time

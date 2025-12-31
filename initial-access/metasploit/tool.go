@@ -9,9 +9,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/zero-day-ai/gibson-tools-official/pkg/common"
-	"github.com/zero-day-ai/gibson-tools-official/pkg/executor"
-	"github.com/zero-day-ai/gibson-tools-official/pkg/health"
+	sdkinput "github.com/zero-day-ai/sdk/input"
+	"github.com/zero-day-ai/sdk/toolerr"
+	"github.com/zero-day-ai/sdk/exec"
+	"github.com/zero-day-ai/sdk/health"
 	"github.com/zero-day-ai/sdk/tool"
 	"github.com/zero-day-ai/sdk/types"
 )
@@ -63,7 +64,7 @@ func (t *ToolImpl) Execute(ctx context.Context, input map[string]any) (map[strin
 	startTime := time.Now()
 
 	// Extract input parameters
-	modulePath := common.GetString(input, "module", "")
+	modulePath := sdkinput.GetString(input, "module", "")
 	if modulePath == "" {
 		return nil, fmt.Errorf("module is required")
 	}
@@ -75,7 +76,7 @@ func (t *ToolImpl) Execute(ctx context.Context, input map[string]any) (map[strin
 	}
 
 	// Get optional payload
-	payloadPath := common.GetString(input, "payload", "")
+	payloadPath := sdkinput.GetString(input, "payload", "")
 
 	// Get optional payload options
 	var payloadOptions map[string]any
@@ -86,27 +87,27 @@ func (t *ToolImpl) Execute(ctx context.Context, input map[string]any) (map[strin
 	// Create resource script
 	rcFile, err := createResourceScript(modulePath, options, payloadPath, payloadOptions)
 	if err != nil {
-		return nil, &common.ToolError{
+		return nil, &toolerr.Error{
 			Tool:      ToolName,
 			Operation: "create_rc_script",
-			Code:      common.ErrCodeExecutionFailed,
+			Code:      toolerr.ErrCodeExecutionFailed,
 			Message:   fmt.Sprintf("failed to create resource script: %v", err),
 		}
 	}
 	defer os.Remove(rcFile) // Clean up resource script
 
 	// Execute msfconsole with resource script
-	result, err := executor.Execute(ctx, executor.Config{
+	result, err := exec.Run(ctx, exec.Config{
 		Command: BinaryName,
 		Args:    []string{"-q", "-r", rcFile}, // -q for quiet mode, -r for resource script
-		Timeout: common.DefaultTimeout(),
+		Timeout: sdkinput.DefaultTimeout(),
 	})
 
 	if err != nil {
-		return nil, &common.ToolError{
+		return nil, &toolerr.Error{
 			Tool:      ToolName,
 			Operation: "execute",
-			Code:      common.ErrCodeExecutionFailed,
+			Code:      toolerr.ErrCodeExecutionFailed,
 			Message:   fmt.Sprintf("failed to execute msfconsole: %v", err),
 			Details:   map[string]any{"exit_code": result.ExitCode},
 		}

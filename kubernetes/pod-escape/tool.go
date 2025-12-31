@@ -8,8 +8,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/zero-day-ai/gibson-tools-official/pkg/common"
-	"github.com/zero-day-ai/gibson-tools-official/pkg/executor"
+	sdkinput "github.com/zero-day-ai/sdk/input"
+	"github.com/zero-day-ai/sdk/toolerr"
+	"github.com/zero-day-ai/sdk/exec"
 	"github.com/zero-day-ai/sdk/tool"
 	"github.com/zero-day-ai/sdk/types"
 )
@@ -91,18 +92,18 @@ func (t *toolWithHealth) Health(ctx context.Context) types.HealthStatus {
 func (t *ToolImpl) Execute(ctx context.Context, input map[string]any) (map[string]any, error) {
 	start := time.Now()
 
-	action := common.GetString(input, "action")
+	action := sdkinput.GetString(input, "action")
 	if action == "" {
 		return nil, fmt.Errorf("action is required")
 	}
 
 	timeout := 60 * time.Second
-	if to := common.GetInt(input, "timeout"); to > 0 {
+	if to := sdkinput.GetInt(input, "timeout"); to > 0 {
 		timeout = time.Duration(to) * time.Second
 	}
 
 	env := os.Environ()
-	if kubeconfig := common.GetString(input, "kubeconfig"); kubeconfig != "" {
+	if kubeconfig := sdkinput.GetString(input, "kubeconfig"); kubeconfig != "" {
 		env = append(env, fmt.Sprintf("KUBECONFIG=%s", kubeconfig))
 	}
 
@@ -240,7 +241,7 @@ func (t *ToolImpl) scanPods(ctx context.Context, input map[string]any, env []str
 
 // analyzePod analyzes a specific pod
 func (t *ToolImpl) analyzePod(ctx context.Context, input map[string]any, env []string, timeout time.Duration) (map[string]any, error) {
-	podName := common.GetString(input, "pod_name")
+	podName := sdkinput.GetString(input, "pod_name")
 	if podName == "" {
 		return nil, fmt.Errorf("pod_name is required for analyze-pod action")
 	}
@@ -248,11 +249,11 @@ func (t *ToolImpl) analyzePod(ctx context.Context, input map[string]any, env []s
 	args := t.buildBaseArgs(input)
 	args = append(args, "get", "pod", podName, "-o", "json")
 
-	if ns := common.GetString(input, "namespace"); ns != "" {
+	if ns := sdkinput.GetString(input, "namespace"); ns != "" {
 		args = append(args, "-n", ns)
 	}
 
-	result, err := executor.Execute(ctx, executor.Config{
+	result, err := exec.Run(ctx, exec.Config{
 		Command: BinaryName,
 		Args:    args,
 		Env:     env,
@@ -393,19 +394,19 @@ func (t *ToolImpl) analyzeMounts(ctx context.Context, input map[string]any, env 
 func (t *ToolImpl) getPods(ctx context.Context, input map[string]any, env []string, timeout time.Duration) ([]PodSpec, error) {
 	args := t.buildBaseArgs(input)
 
-	if common.GetBool(input, "all_namespaces") {
+	if sdkinput.GetBool(input, "all_namespaces") {
 		args = append(args, "get", "pods", "--all-namespaces", "-o", "json")
-	} else if ns := common.GetString(input, "namespace"); ns != "" {
+	} else if ns := sdkinput.GetString(input, "namespace"); ns != "" {
 		args = append(args, "get", "pods", "-n", ns, "-o", "json")
 	} else {
 		args = append(args, "get", "pods", "-o", "json")
 	}
 
-	if selector := common.GetString(input, "label_selector"); selector != "" {
+	if selector := sdkinput.GetString(input, "label_selector"); selector != "" {
 		args = append(args, "-l", selector)
 	}
 
-	result, err := executor.Execute(ctx, executor.Config{
+	result, err := exec.Run(ctx, exec.Config{
 		Command: BinaryName,
 		Args:    args,
 		Env:     env,
@@ -644,7 +645,7 @@ func (t *ToolImpl) getCapabilitySeverity(cap string) string {
 func (t *ToolImpl) buildBaseArgs(input map[string]any) []string {
 	args := []string{}
 
-	if context := common.GetString(input, "context"); context != "" {
+	if context := sdkinput.GetString(input, "context"); context != "" {
 		args = append(args, "--context", context)
 	}
 

@@ -6,9 +6,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/zero-day-ai/gibson-tools-official/pkg/common"
-	"github.com/zero-day-ai/gibson-tools-official/pkg/executor"
-	"github.com/zero-day-ai/gibson-tools-official/pkg/health"
+	sdkinput "github.com/zero-day-ai/sdk/input"
+	"github.com/zero-day-ai/sdk/toolerr"
+	"github.com/zero-day-ai/sdk/exec"
+	"github.com/zero-day-ai/sdk/health"
 	"github.com/zero-day-ai/sdk/tool"
 	"github.com/zero-day-ai/sdk/types"
 )
@@ -60,13 +61,13 @@ func (t *ToolImpl) Execute(ctx context.Context, input map[string]any) (map[strin
 	startTime := time.Now()
 
 	// Extract input parameters
-	toolName := common.GetString(input, "tool", "")
-	target := common.GetString(input, "target", "")
-	domain := common.GetString(input, "domain", "")
-	username := common.GetString(input, "username", "")
-	password := common.GetString(input, "password", "")
-	hash := common.GetString(input, "hash", "")
-	command := common.GetString(input, "command", "")
+	toolName := sdkinput.GetString(input, "tool", "")
+	target := sdkinput.GetString(input, "target", "")
+	domain := sdkinput.GetString(input, "domain", "")
+	username := sdkinput.GetString(input, "username", "")
+	password := sdkinput.GetString(input, "password", "")
+	hash := sdkinput.GetString(input, "hash", "")
+	command := sdkinput.GetString(input, "command", "")
 
 	// Determine which Impacket script to use
 	scriptName, err := getScriptName(toolName)
@@ -78,13 +79,13 @@ func (t *ToolImpl) Execute(ctx context.Context, input map[string]any) (map[strin
 	args := buildImpacketArgs(domain, username, password, hash, target, command)
 
 	// Execute the Impacket script
-	execCfg := executor.Config{
+	execCfg := exec.Config{
 		Command: "python3",
 		Args:    append([]string{scriptName}, args...),
-		Timeout: common.DefaultTimeout(),
+		Timeout: sdkinput.DefaultTimeout(),
 	}
 
-	result, err := executor.Execute(ctx, execCfg)
+	result, err := exec.Run(ctx, execCfg)
 
 	executionTime := time.Since(startTime).Milliseconds()
 

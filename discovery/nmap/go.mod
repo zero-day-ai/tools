@@ -2,14 +2,10 @@ module github.com/zero-day-ai/gibson-tools-official/discovery/nmap
 
 go 1.24.4
 
-require (
-	github.com/zero-day-ai/gibson-tools-official/pkg v0.0.0
-	github.com/zero-day-ai/sdk v0.1.0
-)
+require github.com/zero-day-ai/sdk v0.1.0
 
 require (
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
-	github.com/zero-day-ai/gibson v0.1.0 // indirect
 	go.opentelemetry.io/otel v1.39.0 // indirect
 	go.opentelemetry.io/otel/trace v1.39.0 // indirect
 	golang.org/x/net v0.47.0 // indirect
@@ -20,4 +16,4 @@ require (
 	google.golang.org/protobuf v1.36.11 // indirect
 )
 
-replace github.com/zero-day-ai/gibson-tools-official/pkg => ../../pkg
+replace github.com/zero-day-ai/sdk => ../../../sdk

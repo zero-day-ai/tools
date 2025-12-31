@@ -6,9 +6,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/zero-day-ai/gibson-tools-official/pkg/common"
-	"github.com/zero-day-ai/gibson-tools-official/pkg/executor"
-	"github.com/zero-day-ai/gibson-tools-official/pkg/health"
+	sdkinput "github.com/zero-day-ai/sdk/input"
+	"github.com/zero-day-ai/sdk/toolerr"
+	"github.com/zero-day-ai/sdk/exec"
+	"github.com/zero-day-ai/sdk/health"
 	"github.com/zero-day-ai/sdk/tool"
 	"github.com/zero-day-ai/sdk/types"
 )
@@ -59,22 +60,22 @@ func (t *ToolImpl) Execute(ctx context.Context, input map[string]any) (map[strin
 	startTime := time.Now()
 
 	// Extract required parameters
-	target := common.GetString(input, "target", "")
+	target := sdkinput.GetString(input, "target", "")
 	if target == "" {
 		return nil, fmt.Errorf("target is required")
 	}
 
-	username := common.GetString(input, "username", "")
+	username := sdkinput.GetString(input, "username", "")
 	if username == "" {
 		return nil, fmt.Errorf("username is required")
 	}
 
 	// Extract optional parameters
-	password := common.GetString(input, "password", "")
-	hash := common.GetString(input, "hash", "")
-	command := common.GetString(input, "command", "")
-	script := common.GetString(input, "script", "")
-	port := common.GetInt(input, "port", 5985)
+	password := sdkinput.GetString(input, "password", "")
+	hash := sdkinput.GetString(input, "hash", "")
+	command := sdkinput.GetString(input, "command", "")
+	script := sdkinput.GetString(input, "script", "")
+	port := sdkinput.GetInt(input, "port", 5985)
 
 	// Validate authentication method
 	if password == "" && hash == "" {
@@ -90,10 +91,10 @@ func (t *ToolImpl) Execute(ctx context.Context, input map[string]any) (map[strin
 	args := buildEvilWinRMArgs(target, username, password, hash, command, script, port)
 
 	// Execute evil-winrm
-	result, err := executor.Execute(ctx, executor.Config{
+	result, err := exec.Run(ctx, exec.Config{
 		Command: BinaryName,
 		Args:    args,
-		Timeout: common.DefaultTimeout(),
+		Timeout: sdkinput.DefaultTimeout(),
 	})
 
 	// Calculate execution time
@@ -111,10 +112,10 @@ func (t *ToolImpl) Execute(ctx context.Context, input map[string]any) (map[strin
 		output["error"] = fmt.Sprintf("failed to execute evil-winrm: %v (exit code: %d, stderr: %s)",
 			err, result.ExitCode, strings.TrimSpace(string(result.Stderr)))
 
-		return output, &common.ToolError{
+		return output, &toolerr.Error{
 			Tool:      ToolName,
 			Operation: "execute",
-			Code:      common.ErrCodeExecutionFailed,
+			Code:      toolerr.ErrCodeExecutionFailed,
 			Message:   output["error"].(string),
 			Details:   map[string]any{"exit_code": result.ExitCode},
 		}

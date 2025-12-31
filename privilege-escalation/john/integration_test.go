@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/zero-day-ai/gibson-tools-official/pkg/executor"
+	"github.com/zero-day-ai/sdk/exec"
 	"github.com/zero-day-ai/sdk/types"
 )
 

@@ -7,10 +7,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/zero-day-ai/gibson-tools-official/pkg/common"
-	"github.com/zero-day-ai/gibson-tools-official/pkg/executor"
-	"github.com/zero-day-ai/gibson-tools-official/pkg/health"
+	"github.com/zero-day-ai/sdk/exec"
+	"github.com/zero-day-ai/sdk/health"
+	sdkinput "github.com/zero-day-ai/sdk/input"
 	"github.com/zero-day-ai/sdk/tool"
+	"github.com/zero-day-ai/sdk/toolerr"
 	"github.com/zero-day-ai/sdk/types"
 )
 
@@ -60,37 +61,37 @@ func (t *ToolImpl) Execute(ctx context.Context, input map[string]any) (map[strin
 	startTime := time.Now()
 
 	// Extract input parameters
-	target := common.GetString(input, "target", "")
+	target := sdkinput.GetString(input, "target", "")
 	if target == "" {
 		return nil, fmt.Errorf("target is required")
 	}
 
-	ports := common.GetString(input, "ports", "1-1000")
-	scanType := common.GetString(input, "scan_type", "syn")
-	serviceDetection := common.GetBool(input, "service_detection", true)
-	osDetection := common.GetBool(input, "os_detection", false)
-	scripts := common.GetStringSlice(input, "scripts")
-	timing := common.GetInt(input, "timing", 3)
-	timeout := common.GetTimeout(input, "timeout", common.DefaultTimeout())
+	ports := sdkinput.GetString(input, "ports", "1-1000")
+	scanType := sdkinput.GetString(input, "scan_type", "syn")
+	serviceDetection := sdkinput.GetBool(input, "service_detection", true)
+	osDetection := sdkinput.GetBool(input, "os_detection", false)
+	scripts := sdkinput.GetStringSlice(input, "scripts")
+	timing := sdkinput.GetInt(input, "timing", 3)
+	timeout := sdkinput.GetTimeout(input, "timeout", sdkinput.DefaultTimeout())
 
 	// Build nmap command arguments
 	args := buildArgs(target, ports, scanType, serviceDetection, osDetection, scripts, timing)
 
 	// Execute nmap command
-	result, err := executor.Execute(ctx, executor.Config{
+	result, err := exec.Run(ctx, exec.Config{
 		Command: BinaryName,
 		Args:    args,
 		Timeout: timeout,
 	})
 
 	if err != nil {
-		return nil, common.NewToolError(ToolName, "execute", common.ErrCodeExecutionFailed, err.Error()).WithCause(err)
+		return nil, toolerr.New(ToolName, "execute", toolerr.ErrCodeExecutionFailed, err.Error()).WithCause(err)
 	}
 
 	// Parse nmap XML output
 	output, err := parseOutput(result.Stdout, target)
 	if err != nil {
-		return nil, common.NewToolError(ToolName, "parse", common.ErrCodeParseError, err.Error()).WithCause(err)
+		return nil, toolerr.New(ToolName, "parse", toolerr.ErrCodeParseError, err.Error()).WithCause(err)
 	}
 
 	// Add scan time

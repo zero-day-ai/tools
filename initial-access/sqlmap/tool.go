@@ -11,9 +11,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/zero-day-ai/gibson-tools-official/pkg/common"
-	"github.com/zero-day-ai/gibson-tools-official/pkg/executor"
-	"github.com/zero-day-ai/gibson-tools-official/pkg/health"
+	sdkinput "github.com/zero-day-ai/sdk/input"
+	"github.com/zero-day-ai/sdk/toolerr"
+	"github.com/zero-day-ai/sdk/exec"
+	"github.com/zero-day-ai/sdk/health"
 	"github.com/zero-day-ai/sdk/tool"
 	"github.com/zero-day-ai/sdk/types"
 )
@@ -65,7 +66,7 @@ func (t *ToolImpl) Execute(ctx context.Context, input map[string]any) (map[strin
 	// Create temporary output directory for sqlmap results
 	outputDir, err := os.MkdirTemp("", "sqlmap-output-*")
 	if err != nil {
-		return nil, common.NewToolError(ToolName, "create-temp-dir", common.ErrCodeExecutionFailed, "failed to create temporary output directory").WithCause(err)
+		return nil, toolerr.New(ToolName, "create-temp-dir", toolerr.ErrCodeExecutionFailed, "failed to create temporary output directory").WithCause(err)
 	}
 	defer os.RemoveAll(outputDir) // Clean up after execution
 
@@ -73,17 +74,17 @@ func (t *ToolImpl) Execute(ctx context.Context, input map[string]any) (map[strin
 	args := buildSqlmapArgs(input, outputDir)
 
 	// Get timeout (default to 5 minutes)
-	timeout := common.GetTimeout(input, "timeout", common.DefaultTimeout())
+	timeout := sdkinput.GetTimeout(input, "timeout", sdkinput.DefaultTimeout())
 
 	// Execute sqlmap
-	result, err := executor.Execute(ctx, executor.Config{
+	result, err := exec.Run(ctx, exec.Config{
 		Command: BinaryName,
 		Args:    args,
 		Timeout: timeout,
 	})
 
 	if err != nil {
-		return nil, common.NewToolError(ToolName, "execute", common.ErrCodeExecutionFailed, "sqlmap execution failed").
+		return nil, toolerr.New(ToolName, "execute", toolerr.ErrCodeExecutionFailed, "sqlmap execution failed").
 			WithCause(err).
 			WithDetails(map[string]any{
 				"exit_code": result.ExitCode,
@@ -118,56 +119,56 @@ func buildSqlmapArgs(input map[string]any, outputDir string) []string {
 	}
 
 	// Required: Target URL
-	url := common.GetString(input, "url", "")
+	url := sdkinput.GetString(input, "url", "")
 	if url != "" {
 		args = append(args, "-u", url)
 	}
 
 	// Optional: POST data
-	if data := common.GetString(input, "data", ""); data != "" {
+	if data := sdkinput.GetString(input, "data", ""); data != "" {
 		args = append(args, "--data", data)
 	}
 
 	// Optional: Cookie
-	if cookie := common.GetString(input, "cookie", ""); cookie != "" {
+	if cookie := sdkinput.GetString(input, "cookie", ""); cookie != "" {
 		args = append(args, "--cookie", cookie)
 	}
 
 	// Optional: HTTP method
-	if method := common.GetString(input, "method", ""); method != "" {
+	if method := sdkinput.GetString(input, "method", ""); method != "" {
 		args = append(args, "--method", method)
 	}
 
 	// Optional: Specific parameter to test
-	if param := common.GetString(input, "param", ""); param != "" {
+	if param := sdkinput.GetString(input, "param", ""); param != "" {
 		args = append(args, "-p", param)
 	}
 
 	// Optional: Force DBMS
-	if dbms := common.GetString(input, "dbms", ""); dbms != "" {
+	if dbms := sdkinput.GetString(input, "dbms", ""); dbms != "" {
 		args = append(args, "--dbms", dbms)
 	}
 
 	// Optional: Test level (1-5)
-	level := common.GetInt(input, "level", 1)
+	level := sdkinput.GetInt(input, "level", 1)
 	args = append(args, "--level", fmt.Sprintf("%d", level))
 
 	// Optional: Risk level (1-3)
-	risk := common.GetInt(input, "risk", 1)
+	risk := sdkinput.GetInt(input, "risk", 1)
 	args = append(args, "--risk", fmt.Sprintf("%d", risk))
 
 	// Optional: Technique
-	if technique := common.GetString(input, "technique", ""); technique != "" {
+	if technique := sdkinput.GetString(input, "technique", ""); technique != "" {
 		args = append(args, "--technique", technique)
 	}
 
 	// Optional: Enumerate databases
-	if common.GetBool(input, "dbs", false) {
+	if sdkinput.GetBool(input, "dbs", false) {
 		args = append(args, "--dbs")
 	}
 
 	// Optional: Dump data
-	if common.GetBool(input, "dump", false) {
+	if sdkinput.GetBool(input, "dump", false) {
 		args = append(args, "--dump")
 	}
 

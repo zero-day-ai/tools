@@ -7,9 +7,10 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/zero-day-ai/gibson-tools-official/pkg/common"
-	"github.com/zero-day-ai/gibson-tools-official/pkg/executor"
-	"github.com/zero-day-ai/gibson-tools-official/pkg/health"
+	sdkinput "github.com/zero-day-ai/sdk/input"
+	"github.com/zero-day-ai/sdk/toolerr"
+	"github.com/zero-day-ai/sdk/exec"
+	"github.com/zero-day-ai/sdk/health"
 	"github.com/zero-day-ai/sdk/tool"
 	"github.com/zero-day-ai/sdk/types"
 )
@@ -59,12 +60,12 @@ func (t *toolWithHealth) Health(ctx context.Context) types.HealthStatus {
 // Execute runs secretsdump with the provided parameters
 func (t *ToolImpl) Execute(ctx context.Context, input map[string]any) (map[string]any, error) {
 	// Extract input parameters
-	target := common.GetString(input, "target", "")
-	domain := common.GetString(input, "domain", "")
-	username := common.GetString(input, "username", "")
-	password := common.GetString(input, "password", "")
-	hash := common.GetString(input, "hash", "")
-	method := common.GetString(input, "method", "")
+	target := sdkinput.GetString(input, "target", "")
+	domain := sdkinput.GetString(input, "domain", "")
+	username := sdkinput.GetString(input, "username", "")
+	password := sdkinput.GetString(input, "password", "")
+	hash := sdkinput.GetString(input, "hash", "")
+	method := sdkinput.GetString(input, "method", "")
 
 	// Build authentication string
 	authStr := buildAuthString(domain, username, password, hash)
@@ -88,15 +89,15 @@ func (t *ToolImpl) Execute(ctx context.Context, input map[string]any) (map[strin
 	args = append(args, fmt.Sprintf("%s@%s", authStr, target))
 
 	// Execute secretsdump.py via python3
-	timeout := common.GetTimeout(input, "timeout", common.DefaultTimeout())
-	result, err := executor.Execute(ctx, executor.Config{
+	timeout := sdkinput.GetTimeout(input, "timeout", sdkinput.DefaultTimeout())
+	result, err := exec.Run(ctx, exec.Config{
 		Command: "python3",
 		Args:    args,
 		Timeout: timeout,
 	})
 
 	if err != nil {
-		return nil, common.NewToolError(ToolName, "execute", common.ErrCodeExecutionFailed, err.Error()).
+		return nil, toolerr.New(ToolName, "execute", toolerr.ErrCodeExecutionFailed, err.Error()).
 			WithCause(err).
 			WithDetails(map[string]any{
 				"exit_code": result.ExitCode,
@@ -107,7 +108,7 @@ func (t *ToolImpl) Execute(ctx context.Context, input map[string]any) (map[strin
 	// Parse output
 	output, parseErr := parseSecretsDumpOutput(result.Stdout)
 	if parseErr != nil {
-		return nil, common.NewToolError(ToolName, "parse", common.ErrCodeParseError, parseErr.Error()).
+		return nil, toolerr.New(ToolName, "parse", toolerr.ErrCodeParseError, parseErr.Error()).
 			WithCause(parseErr)
 	}
 
@@ -129,7 +130,7 @@ func (t *ToolImpl) Health(ctx context.Context) types.HealthStatus {
 	}
 
 	// Try to import impacket module
-	result, err := executor.Execute(ctx, executor.Config{
+	result, err := exec.Run(ctx, exec.Config{
 		Command: "python3",
 		Args:    []string{"-c", "import impacket.examples.secretsdump"},
 		Timeout: 5,

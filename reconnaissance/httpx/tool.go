@@ -7,9 +7,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/zero-day-ai/gibson-tools-official/pkg/common"
-	"github.com/zero-day-ai/gibson-tools-official/pkg/executor"
-	"github.com/zero-day-ai/gibson-tools-official/pkg/health"
+	sdkinput "github.com/zero-day-ai/sdk/input"
+	"github.com/zero-day-ai/sdk/toolerr"
+	"github.com/zero-day-ai/sdk/exec"
+	"github.com/zero-day-ai/sdk/health"
 	"github.com/zero-day-ai/sdk/tool"
 	"github.com/zero-day-ai/sdk/types"
 )
@@ -60,22 +61,22 @@ func (t *ToolImpl) Execute(ctx context.Context, input map[string]any) (map[strin
 	startTime := time.Now()
 
 	// Extract input parameters
-	targets := common.GetStringSlice(input, "targets")
+	targets := sdkinput.GetStringSlice(input, "targets")
 	if len(targets) == 0 {
 		return nil, fmt.Errorf("targets is required")
 	}
 
-	timeout := common.GetTimeout(input, "timeout", common.DefaultTimeout())
-	followRedirects := common.GetBool(input, "follow_redirects", true)
-	statusCode := common.GetBool(input, "status_code", true)
-	title := common.GetBool(input, "title", true)
-	techDetect := common.GetBool(input, "tech_detect", false)
+	timeout := sdkinput.GetTimeout(input, "timeout", sdkinput.DefaultTimeout())
+	followRedirects := sdkinput.GetBool(input, "follow_redirects", true)
+	statusCode := sdkinput.GetBool(input, "status_code", true)
+	title := sdkinput.GetBool(input, "title", true)
+	techDetect := sdkinput.GetBool(input, "tech_detect", false)
 
 	// Build httpx command arguments
 	args := buildArgs(followRedirects, statusCode, title, techDetect)
 
 	// Execute httpx command with stdin input
-	result, err := executor.Execute(ctx, executor.Config{
+	result, err := exec.Run(ctx, exec.Config{
 		Command:   BinaryName,
 		Args:      args,
 		StdinData: []byte(strings.Join(targets, "\n")),
@@ -83,13 +84,13 @@ func (t *ToolImpl) Execute(ctx context.Context, input map[string]any) (map[strin
 	})
 
 	if err != nil {
-		return nil, common.NewToolError(ToolName, "execute", common.ErrCodeExecutionFailed, err.Error()).WithCause(err)
+		return nil, toolerr.New(ToolName, "execute", toolerr.ErrCodeExecutionFailed, err.Error()).WithCause(err)
 	}
 
 	// Parse httpx JSON output
 	output, err := parseOutput(result.Stdout)
 	if err != nil {
-		return nil, common.NewToolError(ToolName, "parse", common.ErrCodeParseError, err.Error()).WithCause(err)
+		return nil, toolerr.New(ToolName, "parse", toolerr.ErrCodeParseError, err.Error()).WithCause(err)
 	}
 
 	// Add scan time

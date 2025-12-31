@@ -11,9 +11,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/zero-day-ai/gibson-tools-official/pkg/common"
-	"github.com/zero-day-ai/gibson-tools-official/pkg/executor"
-	"github.com/zero-day-ai/gibson-tools-official/pkg/health"
+	sdkinput "github.com/zero-day-ai/sdk/input"
+	"github.com/zero-day-ai/sdk/toolerr"
+	"github.com/zero-day-ai/sdk/exec"
+	"github.com/zero-day-ai/sdk/health"
 	"github.com/zero-day-ai/sdk/tool"
 	"github.com/zero-day-ai/sdk/types"
 )
@@ -63,17 +64,17 @@ func (t *ToolImpl) Execute(ctx context.Context, input map[string]any) (map[strin
 	startTime := time.Now()
 
 	// Extract and validate input parameters
-	hashFile := common.GetString(input, "hash_file", "")
+	hashFile := sdkinput.GetString(input, "hash_file", "")
 	if hashFile == "" {
 		return nil, fmt.Errorf("hash_file is required")
 	}
 
-	hashType := common.GetInt(input, "hash_type", -1)
+	hashType := sdkinput.GetInt(input, "hash_type", -1)
 	if hashType < 0 {
 		return nil, fmt.Errorf("hash_type is required")
 	}
 
-	attackMode := common.GetString(input, "attack_mode", "")
+	attackMode := sdkinput.GetString(input, "attack_mode", "")
 	if attackMode == "" {
 		return nil, fmt.Errorf("attack_mode is required")
 	}
@@ -96,13 +97,13 @@ func (t *ToolImpl) Execute(ctx context.Context, input map[string]any) (map[strin
 	args := buildHashcatArgs(hashFile, hashType, attackMode, potfilePath, input)
 
 	// Execute hashcat
-	maxRuntime := common.GetInt(input, "max_runtime", 0)
-	execTimeout := common.DefaultTimeout()
+	maxRuntime := sdkinput.GetInt(input, "max_runtime", 0)
+	execTimeout := sdkinput.DefaultTimeout()
 	if maxRuntime > 0 {
 		execTimeout = time.Duration(maxRuntime) * time.Second
 	}
 
-	result, err := executor.Execute(ctx, executor.Config{
+	result, err := exec.Run(ctx, exec.Config{
 		Command: BinaryName,
 		Args:    args,
 		Timeout: execTimeout,
@@ -110,10 +111,10 @@ func (t *ToolImpl) Execute(ctx context.Context, input map[string]any) (map[strin
 
 	// Hashcat returns exit code 1 when exhausted, which is not an error for us
 	if err != nil && result.ExitCode != 1 {
-		return nil, &common.ToolError{
+		return nil, &toolerr.Error{
 			Tool:      ToolName,
 			Operation: "execute",
-			Code:      common.ErrCodeExecutionFailed,
+			Code:      toolerr.ErrCodeExecutionFailed,
 			Message:   fmt.Sprintf("failed to execute hashcat: %v", err),
 			Details:   map[string]any{"exit_code": result.ExitCode},
 		}
@@ -122,10 +123,10 @@ func (t *ToolImpl) Execute(ctx context.Context, input map[string]any) (map[strin
 	// Parse potfile for cracked hashes
 	cracked, err := parsePotfile(potfilePath)
 	if err != nil {
-		return nil, &common.ToolError{
+		return nil, &toolerr.Error{
 			Tool:      ToolName,
 			Operation: "parse",
-			Code:      common.ErrCodeParseError,
+			Code:      toolerr.ErrCodeParseError,
 			Message:   fmt.Sprintf("failed to parse potfile: %v", err),
 		}
 	}
@@ -165,7 +166,7 @@ func (t *ToolImpl) Health(ctx context.Context) types.HealthStatus {
 	}
 
 	// Check GPU availability by running hashcat with --version
-	result, err := executor.Execute(ctx, executor.Config{
+	result, err := exec.Run(ctx, exec.Config{
 		Command: BinaryName,
 		Args:    []string{"--version"},
 		Timeout: 5 * time.Second,
@@ -196,21 +197,21 @@ func (t *ToolImpl) Health(ctx context.Context) types.HealthStatus {
 func validateAttackModeParams(attackMode string, input map[string]any) error {
 	switch attackMode {
 	case "dictionary":
-		wordlist := common.GetString(input, "wordlist", "")
+		wordlist := sdkinput.GetString(input, "wordlist", "")
 		if wordlist == "" {
 			return fmt.Errorf("wordlist is required for dictionary attack")
 		}
 	case "bruteforce":
-		mask := common.GetString(input, "mask", "")
+		mask := sdkinput.GetString(input, "mask", "")
 		if mask == "" {
 			return fmt.Errorf("mask is required for brute-force attack")
 		}
 	case "hybrid":
-		wordlist := common.GetString(input, "wordlist", "")
+		wordlist := sdkinput.GetString(input, "wordlist", "")
 		if wordlist == "" {
 			return fmt.Errorf("wordlist is required for hybrid attack")
 		}
-		mask := common.GetString(input, "mask", "")
+		mask := sdkinput.GetString(input, "mask", "")
 		if mask == "" {
 			return fmt.Errorf("mask is required for hybrid attack")
 		}
@@ -239,16 +240,16 @@ func buildHashcatArgs(hashFile string, hashType int, attackMode string, potfileP
 	}
 
 	// Workload profile
-	workload := common.GetInt(input, "workload", 2)
+	workload := sdkinput.GetInt(input, "workload", 2)
 	args = append(args, "--workload-profile", strconv.Itoa(workload))
 
 	// Session name (for resumable attacks)
-	if sessionName := common.GetString(input, "session_name", ""); sessionName != "" {
+	if sessionName := sdkinput.GetString(input, "session_name", ""); sessionName != "" {
 		args = append(args, "--session", sessionName)
 	}
 
 	// Max runtime
-	if maxRuntime := common.GetInt(input, "max_runtime", 0); maxRuntime > 0 {
+	if maxRuntime := sdkinput.GetInt(input, "max_runtime", 0); maxRuntime > 0 {
 		args = append(args, "--runtime", strconv.Itoa(maxRuntime))
 	}
 
@@ -258,26 +259,26 @@ func buildHashcatArgs(hashFile string, hashType int, attackMode string, potfileP
 	// Add attack-specific parameters
 	switch attackMode {
 	case "dictionary":
-		wordlist := common.GetString(input, "wordlist", "")
+		wordlist := sdkinput.GetString(input, "wordlist", "")
 		args = append(args, wordlist)
 
 		// Add rules if specified
-		if rules := common.GetString(input, "rules", ""); rules != "" {
+		if rules := sdkinput.GetString(input, "rules", ""); rules != "" {
 			args = append(args, "--rules-file", rules)
 		}
 
 	case "bruteforce":
-		mask := common.GetString(input, "mask", "")
+		mask := sdkinput.GetString(input, "mask", "")
 		args = append(args, mask)
 
 		// Increment mode
-		if common.GetBool(input, "increment", false) {
+		if sdkinput.GetBool(input, "increment", false) {
 			args = append(args, "--increment")
 		}
 
 	case "hybrid":
-		wordlist := common.GetString(input, "wordlist", "")
-		mask := common.GetString(input, "mask", "")
+		wordlist := sdkinput.GetString(input, "wordlist", "")
+		mask := sdkinput.GetString(input, "mask", "")
 		args = append(args, wordlist, mask)
 	}
 

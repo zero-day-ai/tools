@@ -8,8 +8,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/zero-day-ai/gibson-tools-official/pkg/common"
-	"github.com/zero-day-ai/gibson-tools-official/pkg/executor"
+	sdkinput "github.com/zero-day-ai/sdk/input"
+	"github.com/zero-day-ai/sdk/toolerr"
+	"github.com/zero-day-ai/sdk/exec"
 	"github.com/zero-day-ai/sdk/tool"
 	"github.com/zero-day-ai/sdk/types"
 )
@@ -70,18 +71,18 @@ func (t *ToolImpl) Execute(ctx context.Context, input map[string]any) (map[strin
 
 	// Get timeout
 	timeout := 60 * time.Second
-	if t := common.GetInt(input, "timeout"); t > 0 {
+	if t := sdkinput.GetInt(input, "timeout"); t > 0 {
 		timeout = time.Duration(t) * time.Second
 	}
 
 	// Build environment variables
 	env := os.Environ()
-	if kubeconfig := common.GetString(input, "kubeconfig"); kubeconfig != "" {
+	if kubeconfig := sdkinput.GetString(input, "kubeconfig"); kubeconfig != "" {
 		env = append(env, fmt.Sprintf("KUBECONFIG=%s", kubeconfig))
 	}
 
 	// Execute kubectl
-	result, err := executor.Execute(ctx, executor.Config{
+	result, err := exec.Run(ctx, exec.Config{
 		Command: BinaryName,
 		Args:    args,
 		Timeout: timeout,
@@ -157,7 +158,7 @@ func (t *ToolImpl) Health(ctx context.Context) types.HealthStatus {
 	}
 
 	// Try to get cluster version to verify connectivity
-	result, err := executor.Execute(ctx, executor.Config{
+	result, err := exec.Run(ctx, exec.Config{
 		Command: BinaryName,
 		Args:    []string{"version", "--client", "-o", "json"},
 		Timeout: 5 * time.Second,
@@ -176,7 +177,7 @@ func (t *ToolImpl) Health(ctx context.Context) types.HealthStatus {
 // buildKubectlArgs constructs the kubectl command arguments
 func buildKubectlArgs(input map[string]any) ([]string, error) {
 	// Check for raw command first
-	if raw := common.GetString(input, "raw"); raw != "" {
+	if raw := sdkinput.GetString(input, "raw"); raw != "" {
 		// Split raw command into args (simple split, doesn't handle quotes)
 		parts := strings.Fields(raw)
 		if len(parts) == 0 {
@@ -192,56 +193,56 @@ func buildKubectlArgs(input map[string]any) ([]string, error) {
 	args := []string{}
 
 	// Add context if specified
-	if context := common.GetString(input, "context"); context != "" {
+	if context := sdkinput.GetString(input, "context"); context != "" {
 		args = append(args, "--context", context)
 	}
 
 	// Add namespace if specified
-	if ns := common.GetString(input, "namespace"); ns != "" {
+	if ns := sdkinput.GetString(input, "namespace"); ns != "" {
 		args = append(args, "-n", ns)
 	}
 
 	// Add all-namespaces flag
-	if common.GetBool(input, "all_namespaces") {
+	if sdkinput.GetBool(input, "all_namespaces") {
 		args = append(args, "--all-namespaces")
 	}
 
 	// Add command
-	command := common.GetString(input, "command")
+	command := sdkinput.GetString(input, "command")
 	if command == "" {
 		command = "get" // default to get
 	}
 	args = append(args, command)
 
 	// Add resource type
-	if resource := common.GetString(input, "resource"); resource != "" {
+	if resource := sdkinput.GetString(input, "resource"); resource != "" {
 		args = append(args, resource)
 	}
 
 	// Add resource name
-	if name := common.GetString(input, "name"); name != "" {
+	if name := sdkinput.GetString(input, "name"); name != "" {
 		args = append(args, name)
 	}
 
 	// Add label selector
-	if selector := common.GetString(input, "selector"); selector != "" {
+	if selector := sdkinput.GetString(input, "selector"); selector != "" {
 		args = append(args, "-l", selector)
 	}
 
 	// Add field selector
-	if fieldSelector := common.GetString(input, "field_selector"); fieldSelector != "" {
+	if fieldSelector := sdkinput.GetString(input, "field_selector"); fieldSelector != "" {
 		args = append(args, "--field-selector", fieldSelector)
 	}
 
 	// Add output format (default to JSON for structured parsing)
-	output := common.GetString(input, "output")
+	output := sdkinput.GetString(input, "output")
 	if output == "" {
 		output = "json"
 	}
 	args = append(args, "-o", output)
 
 	// Add additional args
-	if additionalArgs := common.GetStringSlice(input, "args"); len(additionalArgs) > 0 {
+	if additionalArgs := sdkinput.GetStringSlice(input, "args"); len(additionalArgs) > 0 {
 		args = append(args, additionalArgs...)
 	}
 

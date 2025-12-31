@@ -12,8 +12,9 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/zero-day-ai/gibson-tools-official/pkg/common"
-	"github.com/zero-day-ai/gibson-tools-official/pkg/executor"
+	sdkinput "github.com/zero-day-ai/sdk/input"
+	"github.com/zero-day-ai/sdk/toolerr"
+	"github.com/zero-day-ai/sdk/exec"
 	"github.com/zero-day-ai/sdk/tool"
 	"github.com/zero-day-ai/sdk/types"
 )
@@ -73,14 +74,14 @@ func (t *ToolImpl) Execute(ctx context.Context, input map[string]any) (map[strin
 	startTime := time.Now()
 
 	// Extract parameters
-	iface := common.GetString(input, "interface", "")
+	iface := sdkinput.GetString(input, "interface", "")
 	if iface == "" {
 		return nil, fmt.Errorf("interface parameter is required")
 	}
 
-	analyzeMode := common.GetBool(input, "analyze_mode", false)
-	timeout := common.GetInt(input, "timeout", 60)
-	protocols := common.GetStringSlice(input, "protocols")
+	analyzeMode := sdkinput.GetBool(input, "analyze_mode", false)
+	timeout := sdkinput.GetInt(input, "timeout", 60)
+	protocols := sdkinput.GetStringSlice(input, "protocols")
 
 	// Create a temporary directory for Responder logs
 	logDir, err := os.MkdirTemp("", "responder-logs-*")
@@ -106,7 +107,7 @@ func (t *ToolImpl) Execute(ctx context.Context, input map[string]any) (map[strin
 	errChan := make(chan error, 1)
 
 	go func() {
-		result, err := executor.Execute(cmdCtx, executor.Config{
+		result, err := exec.Run(cmdCtx, exec.Config{
 			Command: "python3",
 			Args:    append([]string{BinaryName}, args...),
 			Timeout: time.Duration(timeout+5) * time.Second, // Add buffer to timeout

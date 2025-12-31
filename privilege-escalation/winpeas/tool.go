@@ -7,9 +7,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/zero-day-ai/gibson-tools-official/pkg/common"
-	"github.com/zero-day-ai/gibson-tools-official/pkg/executor"
-	"github.com/zero-day-ai/gibson-tools-official/pkg/health"
+	sdkinput "github.com/zero-day-ai/sdk/input"
+	"github.com/zero-day-ai/sdk/toolerr"
+	"github.com/zero-day-ai/sdk/exec"
+	"github.com/zero-day-ai/sdk/health"
 	"github.com/zero-day-ai/sdk/tool"
 	"github.com/zero-day-ai/sdk/types"
 )
@@ -60,13 +61,13 @@ func (t *ToolImpl) Execute(ctx context.Context, input map[string]any) (map[strin
 	startTime := time.Now()
 
 	// Extract input parameters
-	targetShell := common.GetString(input, "target_shell", "")
+	targetShell := sdkinput.GetString(input, "target_shell", "")
 	if targetShell == "" {
 		return nil, fmt.Errorf("target_shell is required")
 	}
 
-	checks := common.GetStringSlice(input, "checks")
-	quiet := common.GetBool(input, "quiet", false)
+	checks := sdkinput.GetStringSlice(input, "checks")
+	quiet := sdkinput.GetBool(input, "quiet", false)
 
 	// Build winpeas command arguments
 	winpeasArgs := buildWinPEASArgs(checks, quiet)
@@ -76,17 +77,17 @@ func (t *ToolImpl) Execute(ctx context.Context, input map[string]any) (map[strin
 	fullCommand := fmt.Sprintf("%s '%s'", targetShell, winpeasArgs)
 
 	// Execute winpeas on target via shell interface
-	result, err := executor.Execute(ctx, executor.Config{
+	result, err := exec.Run(ctx, exec.Config{
 		Command: "sh",
 		Args:    []string{"-c", fullCommand},
-		Timeout: common.DefaultTimeout(),
+		Timeout: sdkinput.DefaultTimeout(),
 	})
 
 	if err != nil {
-		return nil, &common.ToolError{
+		return nil, &toolerr.Error{
 			Tool:      ToolName,
 			Operation: "execute",
-			Code:      common.ErrCodeExecutionFailed,
+			Code:      toolerr.ErrCodeExecutionFailed,
 			Message:   fmt.Sprintf("failed to execute winpeas: %v", err),
 			Details:   map[string]any{"exit_code": result.ExitCode},
 		}
@@ -95,10 +96,10 @@ func (t *ToolImpl) Execute(ctx context.Context, input map[string]any) (map[strin
 	// Parse winpeas output
 	parsed, err := parseWinPEASOutput(result.Stdout)
 	if err != nil {
-		return nil, &common.ToolError{
+		return nil, &toolerr.Error{
 			Tool:      ToolName,
 			Operation: "parse",
-			Code:      common.ErrCodeParseError,
+			Code:      toolerr.ErrCodeParseError,
 			Message:   fmt.Sprintf("failed to parse winpeas output: %v", err),
 		}
 	}

@@ -6,9 +6,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/zero-day-ai/gibson-tools-official/pkg/common"
-	"github.com/zero-day-ai/gibson-tools-official/pkg/executor"
-	"github.com/zero-day-ai/gibson-tools-official/pkg/health"
+	sdkinput "github.com/zero-day-ai/sdk/input"
+	"github.com/zero-day-ai/sdk/toolerr"
+	"github.com/zero-day-ai/sdk/exec"
+	"github.com/zero-day-ai/sdk/health"
 	"github.com/zero-day-ai/sdk/tool"
 	"github.com/zero-day-ai/sdk/types"
 )
@@ -59,34 +60,34 @@ func (t *ToolImpl) Execute(ctx context.Context, input map[string]any) (map[strin
 	startTime := time.Now()
 
 	// Extract input parameters
-	domain := common.GetString(input, "domain", "")
+	domain := sdkinput.GetString(input, "domain", "")
 	if domain == "" {
 		return nil, fmt.Errorf("domain is required")
 	}
 
-	timeout := common.GetTimeout(input, "timeout", common.DefaultTimeout())
-	silent := common.GetBool(input, "silent", false)
-	recursive := common.GetBool(input, "recursive", false)
-	all := common.GetBool(input, "all", true)
+	timeout := sdkinput.GetTimeout(input, "timeout", sdkinput.DefaultTimeout())
+	silent := sdkinput.GetBool(input, "silent", false)
+	recursive := sdkinput.GetBool(input, "recursive", false)
+	all := sdkinput.GetBool(input, "all", true)
 
 	// Build subfinder command arguments
 	args := buildArgs(domain, silent, recursive, all)
 
 	// Execute subfinder command
-	result, err := executor.Execute(ctx, executor.Config{
+	result, err := exec.Run(ctx, exec.Config{
 		Command: BinaryName,
 		Args:    args,
 		Timeout: timeout,
 	})
 
 	if err != nil {
-		return nil, common.NewToolError(ToolName, "execute", common.ErrCodeExecutionFailed, err.Error()).WithCause(err)
+		return nil, toolerr.New(ToolName, "execute", toolerr.ErrCodeExecutionFailed, err.Error()).WithCause(err)
 	}
 
 	// Parse subfinder output
 	output, err := parseOutput(result.Stdout, domain)
 	if err != nil {
-		return nil, common.NewToolError(ToolName, "parse", common.ErrCodeParseError, err.Error()).WithCause(err)
+		return nil, toolerr.New(ToolName, "parse", toolerr.ErrCodeParseError, err.Error()).WithCause(err)
 	}
 
 	// Add scan time

@@ -10,9 +10,10 @@ import (
 	"path/filepath"
 	"strconv"
 
-	"github.com/zero-day-ai/gibson-tools-official/pkg/common"
-	"github.com/zero-day-ai/gibson-tools-official/pkg/executor"
-	"github.com/zero-day-ai/gibson-tools-official/pkg/health"
+	sdkinput "github.com/zero-day-ai/sdk/input"
+	"github.com/zero-day-ai/sdk/toolerr"
+	"github.com/zero-day-ai/sdk/exec"
+	"github.com/zero-day-ai/sdk/health"
 	"github.com/zero-day-ai/sdk/tool"
 	"github.com/zero-day-ai/sdk/types"
 )
@@ -61,30 +62,30 @@ func (t *toolWithHealth) Health(ctx context.Context) types.HealthStatus {
 // Execute runs the msfvenom tool with the provided input
 func (t *ToolImpl) Execute(ctx context.Context, input map[string]any) (map[string]any, error) {
 	// Extract input parameters
-	payload := common.GetString(input, "payload", "")
+	payload := sdkinput.GetString(input, "payload", "")
 	if payload == "" {
 		return nil, fmt.Errorf("payload is required")
 	}
 
-	format := common.GetString(input, "format", "")
+	format := sdkinput.GetString(input, "format", "")
 	if format == "" {
 		return nil, fmt.Errorf("format is required")
 	}
 
-	lhost := common.GetString(input, "lhost", "")
-	lport := common.GetInt(input, "lport", 0)
-	encoder := common.GetString(input, "encoder", "")
-	iterations := common.GetInt(input, "iterations", 0)
-	platform := common.GetString(input, "platform", "")
-	arch := common.GetString(input, "arch", "")
+	lhost := sdkinput.GetString(input, "lhost", "")
+	lport := sdkinput.GetInt(input, "lport", 0)
+	encoder := sdkinput.GetString(input, "encoder", "")
+	iterations := sdkinput.GetInt(input, "iterations", 0)
+	platform := sdkinput.GetString(input, "platform", "")
+	arch := sdkinput.GetString(input, "arch", "")
 
 	// Create secure temp directory for payload storage
 	tempDir, err := createSecureTempDir("msfvenom-")
 	if err != nil {
-		return nil, &common.ToolError{
+		return nil, &toolerr.Error{
 			Tool:      ToolName,
 			Operation: "create_temp_dir",
-			Code:      common.ErrCodeExecutionFailed,
+			Code:      toolerr.ErrCodeExecutionFailed,
 			Message:   fmt.Sprintf("failed to create secure temp directory: %v", err),
 		}
 	}
@@ -96,18 +97,18 @@ func (t *ToolImpl) Execute(ctx context.Context, input map[string]any) (map[strin
 	args := buildMsfvenomArgs(payload, format, outputFile, lhost, lport, encoder, iterations, platform, arch)
 
 	// Execute msfvenom
-	execTimeout := common.DefaultTimeout()
-	result, err := executor.Execute(ctx, executor.Config{
+	execTimeout := sdkinput.DefaultTimeout()
+	result, err := exec.Run(ctx, exec.Config{
 		Command: BinaryName,
 		Args:    args,
 		Timeout: execTimeout,
 	})
 
 	if err != nil {
-		return nil, &common.ToolError{
+		return nil, &toolerr.Error{
 			Tool:      ToolName,
 			Operation: "execute",
-			Code:      common.ErrCodeExecutionFailed,
+			Code:      toolerr.ErrCodeExecutionFailed,
 			Message:   fmt.Sprintf("failed to execute msfvenom: %v", err),
 			Details:   map[string]any{"exit_code": result.ExitCode, "stderr": string(result.Stderr)},
 		}
@@ -115,10 +116,10 @@ func (t *ToolImpl) Execute(ctx context.Context, input map[string]any) (map[strin
 
 	// Verify payload file was created
 	if _, err := os.Stat(outputFile); os.IsNotExist(err) {
-		return nil, &common.ToolError{
+		return nil, &toolerr.Error{
 			Tool:      ToolName,
 			Operation: "verify_output",
-			Code:      common.ErrCodeExecutionFailed,
+			Code:      toolerr.ErrCodeExecutionFailed,
 			Message:   "payload file was not created",
 			Details:   map[string]any{"stderr": string(result.Stderr)},
 		}
@@ -127,10 +128,10 @@ func (t *ToolImpl) Execute(ctx context.Context, input map[string]any) (map[strin
 	// Get file size
 	fileInfo, err := os.Stat(outputFile)
 	if err != nil {
-		return nil, &common.ToolError{
+		return nil, &toolerr.Error{
 			Tool:      ToolName,
 			Operation: "stat_file",
-			Code:      common.ErrCodeExecutionFailed,
+			Code:      toolerr.ErrCodeExecutionFailed,
 			Message:   fmt.Sprintf("failed to stat payload file: %v", err),
 		}
 	}
@@ -138,10 +139,10 @@ func (t *ToolImpl) Execute(ctx context.Context, input map[string]any) (map[strin
 	// Calculate hashes
 	md5Hash, sha256Hash, err := calculateHashes(outputFile)
 	if err != nil {
-		return nil, &common.ToolError{
+		return nil, &toolerr.Error{
 			Tool:      ToolName,
 			Operation: "hash_file",
-			Code:      common.ErrCodeExecutionFailed,
+			Code:      toolerr.ErrCodeExecutionFailed,
 			Message:   fmt.Sprintf("failed to calculate hashes: %v", err),
 		}
 	}

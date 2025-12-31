@@ -10,8 +10,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/zero-day-ai/gibson-tools-official/pkg/common"
-	"github.com/zero-day-ai/gibson-tools-official/pkg/executor"
+	sdkinput "github.com/zero-day-ai/sdk/input"
+	"github.com/zero-day-ai/sdk/toolerr"
+	"github.com/zero-day-ai/sdk/exec"
 	"github.com/zero-day-ai/sdk/tool"
 	"github.com/zero-day-ai/sdk/types"
 )
@@ -86,18 +87,18 @@ func (t *toolWithHealth) Health(ctx context.Context) types.HealthStatus {
 func (t *ToolImpl) Execute(ctx context.Context, input map[string]any) (map[string]any, error) {
 	start := time.Now()
 
-	action := common.GetString(input, "action")
+	action := sdkinput.GetString(input, "action")
 	if action == "" {
 		return nil, fmt.Errorf("action is required")
 	}
 
 	timeout := 60 * time.Second
-	if to := common.GetInt(input, "timeout"); to > 0 {
+	if to := sdkinput.GetInt(input, "timeout"); to > 0 {
 		timeout = time.Duration(to) * time.Second
 	}
 
 	env := os.Environ()
-	if kubeconfig := common.GetString(input, "kubeconfig"); kubeconfig != "" {
+	if kubeconfig := sdkinput.GetString(input, "kubeconfig"); kubeconfig != "" {
 		env = append(env, fmt.Sprintf("KUBECONFIG=%s", kubeconfig))
 	}
 
@@ -136,20 +137,20 @@ func (t *ToolImpl) Execute(ctx context.Context, input map[string]any) (map[strin
 func (t *ToolImpl) listSecrets(ctx context.Context, input map[string]any, env []string, timeout time.Duration) (map[string]any, error) {
 	args := t.buildBaseArgs(input)
 
-	if common.GetBool(input, "all_namespaces") {
+	if sdkinput.GetBool(input, "all_namespaces") {
 		args = append(args, "get", "secrets", "--all-namespaces", "-o", "json")
-	} else if ns := common.GetString(input, "namespace"); ns != "" {
+	} else if ns := sdkinput.GetString(input, "namespace"); ns != "" {
 		args = append(args, "get", "secrets", "-n", ns, "-o", "json")
 	} else {
 		args = append(args, "get", "secrets", "-o", "json")
 	}
 
 	// Add label selector if specified
-	if selector := common.GetString(input, "label_selector"); selector != "" {
+	if selector := sdkinput.GetString(input, "label_selector"); selector != "" {
 		args = append(args, "-l", selector)
 	}
 
-	result, err := executor.Execute(ctx, executor.Config{
+	result, err := exec.Run(ctx, exec.Config{
 		Command: BinaryName,
 		Args:    args,
 		Env:     env,
@@ -169,7 +170,7 @@ func (t *ToolImpl) listSecrets(ctx context.Context, input map[string]any, env []
 			Items []map[string]any `json:"items"`
 		}
 		if json.Unmarshal(result.Stdout, &list) == nil {
-			secretType := common.GetString(input, "secret_type")
+			secretType := sdkinput.GetString(input, "secret_type")
 
 			for _, secret := range list.Items {
 				metadata := secret["metadata"].(map[string]any)
@@ -213,7 +214,7 @@ func (t *ToolImpl) listSecrets(ctx context.Context, input map[string]any, env []
 
 // dumpSecret dumps a specific secret
 func (t *ToolImpl) dumpSecret(ctx context.Context, input map[string]any, env []string, timeout time.Duration) (map[string]any, error) {
-	secretName := common.GetString(input, "secret_name")
+	secretName := sdkinput.GetString(input, "secret_name")
 	if secretName == "" {
 		return nil, fmt.Errorf("secret_name is required for dump action")
 	}
@@ -221,11 +222,11 @@ func (t *ToolImpl) dumpSecret(ctx context.Context, input map[string]any, env []s
 	args := t.buildBaseArgs(input)
 	args = append(args, "get", "secret", secretName, "-o", "json")
 
-	if ns := common.GetString(input, "namespace"); ns != "" {
+	if ns := sdkinput.GetString(input, "namespace"); ns != "" {
 		args = append(args, "-n", ns)
 	}
 
-	result, err := executor.Execute(ctx, executor.Config{
+	result, err := exec.Run(ctx, exec.Config{
 		Command: BinaryName,
 		Args:    args,
 		Env:     env,
@@ -255,7 +256,7 @@ func (t *ToolImpl) dumpSecret(ctx context.Context, input map[string]any, env []s
 	if dv, ok := input["decode_values"].(bool); ok {
 		decodeValues = dv
 	}
-	redactSensitive := common.GetBool(input, "redact_sensitive")
+	redactSensitive := sdkinput.GetBool(input, "redact_sensitive")
 
 	if data, ok := secret["data"].(map[string]any); ok {
 		for key, value := range data {
@@ -315,7 +316,7 @@ func (t *ToolImpl) decodeSecrets(ctx context.Context, input map[string]any, env 
 	credentialsFound := []any{}
 	decodedSecrets := []any{}
 
-	redactSensitive := common.GetBool(input, "redact_sensitive")
+	redactSensitive := sdkinput.GetBool(input, "redact_sensitive")
 
 	for _, s := range secrets {
 		secret := s.(map[string]any)
@@ -330,7 +331,7 @@ func (t *ToolImpl) decodeSecrets(ctx context.Context, input map[string]any, env 
 			"decode_values":    true,
 			"redact_sensitive": redactSensitive,
 		}
-		if context := common.GetString(input, "context"); context != "" {
+		if context := sdkinput.GetString(input, "context"); context != "" {
 			dumpInput["context"] = context
 		}
 
@@ -365,7 +366,7 @@ func (t *ToolImpl) decodeSecrets(ctx context.Context, input map[string]any, env 
 
 // searchSecrets searches for patterns in secrets
 func (t *ToolImpl) searchSecrets(ctx context.Context, input map[string]any, env []string, timeout time.Duration) (map[string]any, error) {
-	pattern := common.GetString(input, "search_pattern")
+	pattern := sdkinput.GetString(input, "search_pattern")
 	if pattern == "" {
 		return nil, fmt.Errorf("search_pattern is required for search action")
 	}
@@ -463,7 +464,7 @@ func getSecretKeys(secret map[string]any) []string {
 func (t *ToolImpl) buildBaseArgs(input map[string]any) []string {
 	args := []string{}
 
-	if context := common.GetString(input, "context"); context != "" {
+	if context := sdkinput.GetString(input, "context"); context != "" {
 		args = append(args, "--context", context)
 	}
 

@@ -9,9 +9,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/zero-day-ai/gibson-tools-official/pkg/common"
-	"github.com/zero-day-ai/gibson-tools-official/pkg/executor"
-	"github.com/zero-day-ai/gibson-tools-official/pkg/health"
+	sdkinput "github.com/zero-day-ai/sdk/input"
+	"github.com/zero-day-ai/sdk/toolerr"
+	"github.com/zero-day-ai/sdk/exec"
+	"github.com/zero-day-ai/sdk/health"
 	"github.com/zero-day-ai/sdk/tool"
 	"github.com/zero-day-ai/sdk/types"
 )
@@ -68,10 +69,10 @@ func (t *ToolImpl) Execute(ctx context.Context, input map[string]any) (map[strin
 	// Extract input parameters
 	target, ok := input["target"].(string)
 	if !ok || target == "" {
-		return nil, &common.ToolError{
+		return nil, &toolerr.Error{
 			Tool:      ToolName,
 			Operation: "validate_input",
-			Code:      common.ErrCodeInvalidInput,
+			Code:      toolerr.ErrCodeInvalidInput,
 			Message:   "target is required and must be a string",
 		}
 	}
@@ -84,10 +85,10 @@ func (t *ToolImpl) Execute(ctx context.Context, input map[string]any) (map[strin
 	// Create temp directory for output
 	tempDir, err := os.MkdirTemp("", "spiderfoot-*")
 	if err != nil {
-		return nil, &common.ToolError{
+		return nil, &toolerr.Error{
 			Tool:      ToolName,
 			Operation: "create_temp_dir",
-			Code:      common.ErrCodeExecutionFailed,
+			Code:      toolerr.ErrCodeExecutionFailed,
 			Message:   "failed to create temporary directory",
 			Cause:     err,
 		}
@@ -100,18 +101,18 @@ func (t *ToolImpl) Execute(ctx context.Context, input map[string]any) (map[strin
 	args := t.buildArgs(target, scanType, outputFile, input)
 
 	// Execute SpiderFoot
-	execCfg := executor.Config{
+	execCfg := exec.Config{
 		Command: BinaryName,
 		Args:    args,
 		Timeout: DefaultTimeout,
 	}
 
-	result, err := executor.Execute(ctx, execCfg)
+	result, err := exec.Run(ctx, execCfg)
 	if err != nil {
-		return nil, &common.ToolError{
+		return nil, &toolerr.Error{
 			Tool:      ToolName,
 			Operation: "execute",
-			Code:      common.ErrCodeExecutionFailed,
+			Code:      toolerr.ErrCodeExecutionFailed,
 			Message:   fmt.Sprintf("spiderfoot execution failed: %s", string(result.Stderr)),
 			Cause:     err,
 			Details: map[string]any{
@@ -124,10 +125,10 @@ func (t *ToolImpl) Execute(ctx context.Context, input map[string]any) (map[strin
 	// Parse the output
 	entities, relationships, err := t.parseOutput(outputFile)
 	if err != nil {
-		return nil, &common.ToolError{
+		return nil, &toolerr.Error{
 			Tool:      ToolName,
 			Operation: "parse_output",
-			Code:      common.ErrCodeParseError,
+			Code:      toolerr.ErrCodeParseError,
 			Message:   "failed to parse spiderfoot output",
 			Cause:     err,
 		}

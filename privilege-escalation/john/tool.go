@@ -7,9 +7,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/zero-day-ai/gibson-tools-official/pkg/common"
-	"github.com/zero-day-ai/gibson-tools-official/pkg/executor"
-	"github.com/zero-day-ai/gibson-tools-official/pkg/health"
+	sdkinput "github.com/zero-day-ai/sdk/input"
+	"github.com/zero-day-ai/sdk/toolerr"
+	"github.com/zero-day-ai/sdk/exec"
+	"github.com/zero-day-ai/sdk/health"
 	"github.com/zero-day-ai/sdk/tool"
 	"github.com/zero-day-ai/sdk/types"
 )
@@ -57,36 +58,36 @@ func (t *toolWithHealth) Health(ctx context.Context) types.HealthStatus {
 // Execute runs the john tool with the provided input
 func (t *ToolImpl) Execute(ctx context.Context, input map[string]any) (map[string]any, error) {
 	// Extract input parameters
-	hashFile := common.GetString(input, "hash_file", "")
+	hashFile := sdkinput.GetString(input, "hash_file", "")
 	if hashFile == "" {
-		return nil, &common.ToolError{
+		return nil, &toolerr.Error{
 			Tool:      ToolName,
 			Operation: "validate",
-			Code:      common.ErrCodeInvalidInput,
+			Code:      toolerr.ErrCodeInvalidInput,
 			Message:   "hash_file is required",
 		}
 	}
 
 	// Verify hash file exists
 	if _, err := os.Stat(hashFile); err != nil {
-		return nil, &common.ToolError{
+		return nil, &toolerr.Error{
 			Tool:      ToolName,
 			Operation: "validate",
-			Code:      common.ErrCodeInvalidInput,
+			Code:      toolerr.ErrCodeInvalidInput,
 			Message:   fmt.Sprintf("hash file does not exist: %s", hashFile),
 		}
 	}
 
-	format := common.GetString(input, "format", "")
-	wordlist := common.GetString(input, "wordlist", "")
-	rules := common.GetString(input, "rules", "")
-	incremental := common.GetBool(input, "incremental", false)
+	format := sdkinput.GetString(input, "format", "")
+	wordlist := sdkinput.GetString(input, "wordlist", "")
+	rules := sdkinput.GetString(input, "rules", "")
+	incremental := sdkinput.GetBool(input, "incremental", false)
 
 	// First, run john to crack the hashes
 	crackArgs := buildJohnCrackArgs(hashFile, format, wordlist, rules, incremental)
 
-	execTimeout := common.DefaultTimeout()
-	_, err := executor.Execute(ctx, executor.Config{
+	execTimeout := sdkinput.DefaultTimeout()
+	_, err := exec.Run(ctx, exec.Config{
 		Command: BinaryName,
 		Args:    crackArgs,
 		Timeout: execTimeout,
@@ -98,17 +99,17 @@ func (t *ToolImpl) Execute(ctx context.Context, input map[string]any) (map[strin
 	// Now retrieve the cracked passwords using --show
 	showArgs := buildJohnShowArgs(hashFile, format)
 
-	result, err := executor.Execute(ctx, executor.Config{
+	result, err := exec.Run(ctx, exec.Config{
 		Command: BinaryName,
 		Args:    showArgs,
 		Timeout: 30 * time.Second, // Short timeout for --show
 	})
 
 	if err != nil {
-		return nil, &common.ToolError{
+		return nil, &toolerr.Error{
 			Tool:      ToolName,
 			Operation: "execute",
-			Code:      common.ErrCodeExecutionFailed,
+			Code:      toolerr.ErrCodeExecutionFailed,
 			Message:   fmt.Sprintf("failed to retrieve cracked passwords: %v", err),
 			Details:   map[string]any{"exit_code": result.ExitCode},
 		}
@@ -117,10 +118,10 @@ func (t *ToolImpl) Execute(ctx context.Context, input map[string]any) (map[strin
 	// Parse the output
 	cracked, totalHashes, err := parseJohnOutput(result.Stdout, result.Stderr, format)
 	if err != nil {
-		return nil, &common.ToolError{
+		return nil, &toolerr.Error{
 			Tool:      ToolName,
 			Operation: "parse",
-			Code:      common.ErrCodeParseError,
+			Code:      toolerr.ErrCodeParseError,
 			Message:   fmt.Sprintf("failed to parse john output: %v", err),
 		}
 	}

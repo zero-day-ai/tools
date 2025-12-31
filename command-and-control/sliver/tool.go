@@ -9,9 +9,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/zero-day-ai/gibson-tools-official/pkg/common"
-	"github.com/zero-day-ai/gibson-tools-official/pkg/executor"
-	"github.com/zero-day-ai/gibson-tools-official/pkg/health"
+	sdkinput "github.com/zero-day-ai/sdk/input"
+	"github.com/zero-day-ai/sdk/toolerr"
+	"github.com/zero-day-ai/sdk/exec"
+	"github.com/zero-day-ai/sdk/health"
 	"github.com/zero-day-ai/sdk/tool"
 	"github.com/zero-day-ai/sdk/types"
 )
@@ -62,7 +63,7 @@ func (t *ToolImpl) Execute(ctx context.Context, input map[string]any) (map[strin
 	startTime := time.Now()
 
 	// Extract action parameter
-	action := common.GetString(input, "action", "")
+	action := sdkinput.GetString(input, "action", "")
 	if action == "" {
 		return nil, fmt.Errorf("action is required")
 	}
@@ -97,15 +98,15 @@ func (t *ToolImpl) Execute(ctx context.Context, input map[string]any) (map[strin
 
 // generateImplant generates a new Sliver implant
 func (t *ToolImpl) generateImplant(ctx context.Context, input map[string]any) (map[string]any, error) {
-	implantConfig := common.GetMap(input, "implant_config")
+	implantConfig := sdkinput.GetMap(input, "implant_config")
 	if implantConfig == nil {
 		return nil, fmt.Errorf("implant_config is required for 'generate' action")
 	}
 
-	targetOS := common.GetString(implantConfig, "os", "windows")
-	arch := common.GetString(implantConfig, "arch", "amd64")
-	format := common.GetString(implantConfig, "format", "exe")
-	c2Endpoints := common.GetStringSlice(implantConfig, "c2_endpoints")
+	targetOS := sdkinput.GetString(implantConfig, "os", "windows")
+	arch := sdkinput.GetString(implantConfig, "arch", "amd64")
+	format := sdkinput.GetString(implantConfig, "format", "exe")
+	c2Endpoints := sdkinput.GetStringSlice(implantConfig, "c2_endpoints")
 
 	if len(c2Endpoints) == 0 {
 		return nil, fmt.Errorf("at least one C2 endpoint is required")
@@ -140,17 +141,17 @@ func (t *ToolImpl) generateImplant(ctx context.Context, input map[string]any) (m
 	args = append(args, "--save", outputDir)
 
 	// Execute sliver-client command
-	result, err := executor.Execute(ctx, executor.Config{
+	result, err := exec.Run(ctx, exec.Config{
 		Command: BinaryName,
 		Args:    args,
-		Timeout: common.DefaultTimeout(),
+		Timeout: sdkinput.DefaultTimeout(),
 	})
 
 	if err != nil {
-		return nil, &common.ToolError{
+		return nil, &toolerr.Error{
 			Tool:      ToolName,
 			Operation: "generate",
-			Code:      common.ErrCodeExecutionFailed,
+			Code:      toolerr.ErrCodeExecutionFailed,
 			Message:   fmt.Sprintf("failed to generate implant: %v", err),
 			Details:   map[string]any{"exit_code": result.ExitCode},
 		}
@@ -184,17 +185,17 @@ func (t *ToolImpl) generateImplant(ctx context.Context, input map[string]any) (m
 func (t *ToolImpl) listSessions(ctx context.Context) (map[string]any, error) {
 	args := []string{"sessions", "-j"} // JSON output
 
-	result, err := executor.Execute(ctx, executor.Config{
+	result, err := exec.Run(ctx, exec.Config{
 		Command: BinaryName,
 		Args:    args,
 		Timeout: 30 * time.Second,
 	})
 
 	if err != nil {
-		return nil, &common.ToolError{
+		return nil, &toolerr.Error{
 			Tool:      ToolName,
 			Operation: "sessions",
-			Code:      common.ErrCodeExecutionFailed,
+			Code:      toolerr.ErrCodeExecutionFailed,
 			Message:   fmt.Sprintf("failed to list sessions: %v", err),
 			Details:   map[string]any{"exit_code": result.ExitCode},
 		}
@@ -224,17 +225,17 @@ func (t *ToolImpl) listSessions(ctx context.Context) (map[string]any, error) {
 func (t *ToolImpl) listBeacons(ctx context.Context) (map[string]any, error) {
 	args := []string{"beacons", "-j"} // JSON output
 
-	result, err := executor.Execute(ctx, executor.Config{
+	result, err := exec.Run(ctx, exec.Config{
 		Command: BinaryName,
 		Args:    args,
 		Timeout: 30 * time.Second,
 	})
 
 	if err != nil {
-		return nil, &common.ToolError{
+		return nil, &toolerr.Error{
 			Tool:      ToolName,
 			Operation: "beacons",
-			Code:      common.ErrCodeExecutionFailed,
+			Code:      toolerr.ErrCodeExecutionFailed,
 			Message:   fmt.Sprintf("failed to list beacons: %v", err),
 			Details:   map[string]any{"exit_code": result.ExitCode},
 		}
@@ -262,24 +263,24 @@ func (t *ToolImpl) listBeacons(ctx context.Context) (map[string]any, error) {
 
 // useSession switches to a specific session
 func (t *ToolImpl) useSession(ctx context.Context, input map[string]any) (map[string]any, error) {
-	sessionID := common.GetString(input, "session_id", "")
+	sessionID := sdkinput.GetString(input, "session_id", "")
 	if sessionID == "" {
 		return nil, fmt.Errorf("session_id is required for 'use' action")
 	}
 
 	args := []string{"use", sessionID}
 
-	result, err := executor.Execute(ctx, executor.Config{
+	result, err := exec.Run(ctx, exec.Config{
 		Command: BinaryName,
 		Args:    args,
 		Timeout: 10 * time.Second,
 	})
 
 	if err != nil {
-		return nil, &common.ToolError{
+		return nil, &toolerr.Error{
 			Tool:      ToolName,
 			Operation: "use",
-			Code:      common.ErrCodeExecutionFailed,
+			Code:      toolerr.ErrCodeExecutionFailed,
 			Message:   fmt.Sprintf("failed to use session: %v", err),
 			Details:   map[string]any{"exit_code": result.ExitCode},
 		}
@@ -295,8 +296,8 @@ func (t *ToolImpl) useSession(ctx context.Context, input map[string]any) (map[st
 
 // executeCommand executes a shell command on a session
 func (t *ToolImpl) executeCommand(ctx context.Context, input map[string]any) (map[string]any, error) {
-	sessionID := common.GetString(input, "session_id", "")
-	command := common.GetString(input, "command", "")
+	sessionID := sdkinput.GetString(input, "session_id", "")
+	command := sdkinput.GetString(input, "command", "")
 
 	if sessionID == "" {
 		return nil, fmt.Errorf("session_id is required for 'shell' action")
@@ -307,34 +308,34 @@ func (t *ToolImpl) executeCommand(ctx context.Context, input map[string]any) (ma
 
 	// First, use the session
 	useArgs := []string{"use", sessionID}
-	_, err := executor.Execute(ctx, executor.Config{
+	_, err := exec.Run(ctx, exec.Config{
 		Command: BinaryName,
 		Args:    useArgs,
 		Timeout: 10 * time.Second,
 	})
 
 	if err != nil {
-		return nil, &common.ToolError{
+		return nil, &toolerr.Error{
 			Tool:      ToolName,
 			Operation: "shell",
-			Code:      common.ErrCodeExecutionFailed,
+			Code:      toolerr.ErrCodeExecutionFailed,
 			Message:   fmt.Sprintf("failed to use session: %v", err),
 		}
 	}
 
 	// Execute the shell command
 	shellArgs := []string{"shell", command}
-	result, err := executor.Execute(ctx, executor.Config{
+	result, err := exec.Run(ctx, exec.Config{
 		Command: BinaryName,
 		Args:    shellArgs,
-		Timeout: common.DefaultTimeout(),
+		Timeout: sdkinput.DefaultTimeout(),
 	})
 
 	if err != nil {
-		return nil, &common.ToolError{
+		return nil, &toolerr.Error{
 			Tool:      ToolName,
 			Operation: "shell",
-			Code:      common.ErrCodeExecutionFailed,
+			Code:      toolerr.ErrCodeExecutionFailed,
 			Message:   fmt.Sprintf("failed to execute command: %v", err),
 			Details:   map[string]any{"exit_code": result.ExitCode},
 		}
@@ -357,7 +358,7 @@ func (t *ToolImpl) Health(ctx context.Context) types.HealthStatus {
 	}
 
 	// Try to connect to Sliver server by listing sessions
-	result, err := executor.Execute(ctx, executor.Config{
+	result, err := exec.Run(ctx, exec.Config{
 		Command: BinaryName,
 		Args:    []string{"sessions", "-j"},
 		Timeout: 10 * time.Second,

@@ -8,9 +8,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/zero-day-ai/gibson-tools-official/pkg/common"
-	"github.com/zero-day-ai/gibson-tools-official/pkg/executor"
-	"github.com/zero-day-ai/gibson-tools-official/pkg/health"
+	sdkinput "github.com/zero-day-ai/sdk/input"
+	"github.com/zero-day-ai/sdk/toolerr"
+	"github.com/zero-day-ai/sdk/exec"
+	"github.com/zero-day-ai/sdk/health"
 	"github.com/zero-day-ai/sdk/tool"
 	"github.com/zero-day-ai/sdk/types"
 )
@@ -61,36 +62,36 @@ func (t *ToolImpl) Execute(ctx context.Context, input map[string]any) (map[strin
 	startTime := time.Now()
 
 	// Extract input parameters
-	url := common.GetString(input, "url", "")
+	url := sdkinput.GetString(input, "url", "")
 	if url == "" {
 		return nil, fmt.Errorf("url is required")
 	}
 
-	wordlist := common.GetString(input, "wordlist", "/usr/share/wordlists/dirb/common.txt")
-	mode := common.GetString(input, "mode", "dir")
-	extensions := common.GetStringSlice(input, "extensions")
-	threads := common.GetInt(input, "threads", 10)
-	timeout := common.GetTimeout(input, "timeout", common.DefaultTimeout())
-	statusCodes := common.GetString(input, "status_codes", "200,204,301,302,307,401,403")
+	wordlist := sdkinput.GetString(input, "wordlist", "/usr/share/wordlists/dirb/common.txt")
+	mode := sdkinput.GetString(input, "mode", "dir")
+	extensions := sdkinput.GetStringSlice(input, "extensions")
+	threads := sdkinput.GetInt(input, "threads", 10)
+	timeout := sdkinput.GetTimeout(input, "timeout", sdkinput.DefaultTimeout())
+	statusCodes := sdkinput.GetString(input, "status_codes", "200,204,301,302,307,401,403")
 
 	// Build gobuster command arguments
 	args := buildArgs(url, wordlist, mode, extensions, threads, statusCodes)
 
 	// Execute gobuster command
-	result, err := executor.Execute(ctx, executor.Config{
+	result, err := exec.Run(ctx, exec.Config{
 		Command: BinaryName,
 		Args:    args,
 		Timeout: timeout,
 	})
 
 	if err != nil {
-		return nil, common.NewToolError(ToolName, "execute", common.ErrCodeExecutionFailed, err.Error()).WithCause(err)
+		return nil, toolerr.New(ToolName, "execute", toolerr.ErrCodeExecutionFailed, err.Error()).WithCause(err)
 	}
 
 	// Parse gobuster output
 	output, err := parseOutput(result.Stdout, url)
 	if err != nil {
-		return nil, common.NewToolError(ToolName, "parse", common.ErrCodeParseError, err.Error()).WithCause(err)
+		return nil, toolerr.New(ToolName, "parse", toolerr.ErrCodeParseError, err.Error()).WithCause(err)
 	}
 
 	// Add scan time

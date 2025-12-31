@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/zero-day-ai/gibson-tools-official/pkg/executor"
+	"github.com/zero-day-ai/sdk/exec"
 	"github.com/zero-day-ai/sdk/tool"
 	"github.com/zero-day-ai/sdk/types"
 )
@@ -72,7 +72,7 @@ func (t *ToolImpl) Execute(ctx context.Context, input map[string]any) (map[strin
 	args := t.buildBloodhoundArgs(input, outputDir)
 
 	// Execute bloodhound-python
-	result, err := executor.Execute(ctx, executor.Config{
+	result, err := exec.Run(ctx, exec.Config{
 		Command: BinaryName,
 		Args:    args,
 		Timeout: t.getTimeout(input),

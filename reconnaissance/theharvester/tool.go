@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/zero-day-ai/gibson-tools-official/pkg/executor"
+	"github.com/zero-day-ai/sdk/exec"
 	"github.com/zero-day-ai/sdk/tool"
 	"github.com/zero-day-ai/sdk/types"
 )
@@ -84,7 +84,7 @@ func (t *ToolImpl) Execute(ctx context.Context, input map[string]any) (map[strin
 	args := buildTheHarvesterArgs(domain, sources, limit, start, outputFile)
 
 	// Execute theHarvester using python3
-	result, err := executor.Execute(ctx, executor.Config{
+	result, err := exec.Run(ctx, exec.Config{
 		Command: "python3",
 		Args:    append([]string{"-m", "theHarvester"}, args...),
 		Timeout: 5 * time.Minute, // Default timeout
@@ -150,7 +150,7 @@ func (t *ToolImpl) Health(ctx context.Context) types.HealthStatus {
 	}
 
 	// Try to execute theHarvester with --help to verify it's installed
-	result, err := executor.Execute(ctx, executor.Config{
+	result, err := exec.Run(ctx, exec.Config{
 		Command: "python3",
 		Args:    []string{"-m", "theHarvester", "--help"},
 		Timeout: 5 * time.Second,
