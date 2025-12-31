@@ -225,7 +225,7 @@ func measureResponseTime(ctx context.Context, target string) (int, error) {
 // Health checks the slowhttptest binary
 func (t *ToolImpl) Health(ctx context.Context) types.HealthStatus {
 	// Check if slowhttptest binary exists
-	if !executor.BinaryExists(BinaryName) {
+	if !exec.BinaryExists(BinaryName) {
 		return types.NewUnhealthyStatus("slowhttptest binary not found in PATH", map[string]any{
 			"binary": BinaryName,
 			"note":   "install slowhttptest (e.g., apt install slowhttptest)",

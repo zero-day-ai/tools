@@ -135,7 +135,7 @@ func (t *ToolImpl) Execute(ctx context.Context, input map[string]any) (map[strin
 // Health checks if xfreerdp binary exists
 func (t *ToolImpl) Health(ctx context.Context) types.HealthStatus {
 	// Check if xfreerdp binary exists
-	if !executor.BinaryExists(BinaryName) {
+	if !exec.BinaryExists(BinaryName) {
 		return types.NewUnhealthyStatus(
 			fmt.Sprintf("%s binary not found in PATH", BinaryName),
 			map[string]any{
@@ -213,7 +213,7 @@ func buildXfreerdpArgs(target, username, password, hash, domain string, port int
 
 // extractSessionID attempts to extract a session identifier from command output
 // For xfreerdp, we use the process ID as the session identifier
-func extractSessionID(result *executor.Result) string {
+func extractSessionID(result *exec.Result) string {
 	// In a real implementation, xfreerdp runs as an interactive process
 	// For now, we return a placeholder indicating successful connection
 	// In production, you might want to track the background process ID
@@ -221,7 +221,7 @@ func extractSessionID(result *executor.Result) string {
 }
 
 // parseXfreerdpError extracts error information from xfreerdp output
-func parseXfreerdpError(result *executor.Result) string {
+func parseXfreerdpError(result *exec.Result) string {
 	stderr := string(result.Stderr)
 	stdout := string(result.Stdout)
 	combined := stderr + "\n" + stdout

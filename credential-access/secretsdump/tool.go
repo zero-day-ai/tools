@@ -125,7 +125,7 @@ func (t *ToolImpl) Health(ctx context.Context) types.HealthStatus {
 
 	// Check if secretsdump.py is available
 	// Try to find it in PATH or common locations
-	if executor.BinaryExists("secretsdump.py") {
+	if exec.BinaryExists("secretsdump.py") {
 		return types.NewHealthyStatus("secretsdump.py is available")
 	}
 

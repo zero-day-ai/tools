@@ -13,7 +13,7 @@ import (
 
 func TestAmassIntegration(t *testing.T) {
 	// Skip if amass binary is not available
-	if !executor.BinaryExists(BinaryName) {
+	if !exec.BinaryExists(BinaryName) {
 		t.Skipf("skipping integration test: %s binary not found", BinaryName)
 	}
 

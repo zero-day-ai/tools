@@ -145,7 +145,7 @@ func (t *ToolImpl) Execute(ctx context.Context, input map[string]any) (map[strin
 // Health checks if theHarvester is available
 func (t *ToolImpl) Health(ctx context.Context) types.HealthStatus {
 	// Check if python3 is available
-	if !executor.BinaryExists("python3") {
+	if !exec.BinaryExists("python3") {
 		return types.NewUnhealthyStatus("python3 not found in PATH", nil)
 	}
 

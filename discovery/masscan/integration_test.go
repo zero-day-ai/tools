@@ -14,7 +14,7 @@ import (
 
 func TestMasscanIntegration(t *testing.T) {
 	// Skip if masscan binary is not available
-	if !executor.BinaryExists(BinaryName) {
+	if !exec.BinaryExists(BinaryName) {
 		t.Skipf("skipping integration test: %s binary not found", BinaryName)
 	}
 

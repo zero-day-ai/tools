@@ -252,7 +252,7 @@ func (t *ToolImpl) getTimeout(input map[string]any) time.Duration {
 // Health checks the bloodhound-python binary
 func (t *ToolImpl) Health(ctx context.Context) types.HealthStatus {
 	// Check if bloodhound-python binary exists
-	if !executor.BinaryExists(BinaryName) {
+	if !exec.BinaryExists(BinaryName) {
 		return types.NewUnhealthyStatus("bloodhound-python not found in PATH", map[string]any{
 			"binary": BinaryName,
 			"hint":   "Install with: pip install bloodhound",

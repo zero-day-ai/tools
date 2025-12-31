@@ -12,7 +12,6 @@ import (
 	"time"
 
 	sdkinput "github.com/zero-day-ai/sdk/input"
-	"github.com/zero-day-ai/sdk/toolerr"
 	"github.com/zero-day-ai/sdk/exec"
 	"github.com/zero-day-ai/sdk/tool"
 	"github.com/zero-day-ai/sdk/types"
@@ -65,18 +64,18 @@ func (t *toolWithHealth) Health(ctx context.Context) types.HealthStatus {
 func (t *ToolImpl) Execute(ctx context.Context, input map[string]any) (map[string]any, error) {
 	start := time.Now()
 
-	action := sdkinput.GetString(input, "action")
+	action := sdkinput.GetString(input, "action", "")
 	if action == "" {
 		return nil, fmt.Errorf("action is required")
 	}
 
 	timeout := 30 * time.Second
-	if to := sdkinput.GetInt(input, "timeout"); to > 0 {
+	if to := sdkinput.GetInt(input, "timeout", 0); to > 0 {
 		timeout = time.Duration(to) * time.Second
 	}
 
 	env := os.Environ()
-	if kubeconfig := sdkinput.GetString(input, "kubeconfig"); kubeconfig != "" {
+	if kubeconfig := sdkinput.GetString(input, "kubeconfig", ""); kubeconfig != "" {
 		env = append(env, fmt.Sprintf("KUBECONFIG=%s", kubeconfig))
 	}
 
@@ -115,9 +114,9 @@ func (t *ToolImpl) Execute(ctx context.Context, input map[string]any) (map[strin
 func (t *ToolImpl) listPolicies(ctx context.Context, input map[string]any, env []string, timeout time.Duration) (map[string]any, error) {
 	args := t.buildBaseArgs(input)
 
-	if sdkinput.GetBool(input, "all_namespaces") {
+	if sdkinput.GetBool(input, "all_namespaces", false) {
 		args = append(args, "get", "networkpolicies", "--all-namespaces", "-o", "json")
-	} else if ns := sdkinput.GetString(input, "namespace"); ns != "" {
+	} else if ns := sdkinput.GetString(input, "namespace", ""); ns != "" {
 		args = append(args, "get", "networkpolicies", "-n", ns, "-o", "json")
 	} else {
 		args = append(args, "get", "networkpolicies", "-o", "json")
@@ -152,17 +151,17 @@ func (t *ToolImpl) listPolicies(ctx context.Context, input map[string]any, env [
 
 // testConnectivity tests network connectivity between pods or to external hosts
 func (t *ToolImpl) testConnectivity(ctx context.Context, input map[string]any, timeout time.Duration) (map[string]any, error) {
-	targetHost := sdkinput.GetString(input, "target_host")
+	targetHost := sdkinput.GetString(input, "target_host", "")
 	if targetHost == "" {
 		return nil, fmt.Errorf("target_host is required for connectivity test")
 	}
 
-	targetPort := sdkinput.GetInt(input, "target_port")
+	targetPort := sdkinput.GetInt(input, "target_port", 0)
 	if targetPort == 0 {
 		targetPort = 80
 	}
 
-	protocol := sdkinput.GetString(input, "protocol")
+	protocol := sdkinput.GetString(input, "protocol", "")
 	if protocol == "" {
 		protocol = "tcp"
 	}
@@ -244,7 +243,7 @@ func (t *ToolImpl) testEgress(ctx context.Context, input map[string]any, timeout
 
 // testMetadataAccess tests if cloud metadata service is accessible
 func (t *ToolImpl) testMetadataAccess(ctx context.Context, input map[string]any, timeout time.Duration) (map[string]any, error) {
-	metadataIP := sdkinput.GetString(input, "metadata_ip")
+	metadataIP := sdkinput.GetString(input, "metadata_ip", "")
 	if metadataIP == "" {
 		metadataIP = DefaultMetadataIP
 	}
@@ -512,7 +511,7 @@ func (t *ToolImpl) podMatchesPolicy(podLabels map[string]string, policy any) boo
 func (t *ToolImpl) buildBaseArgs(input map[string]any) []string {
 	args := []string{}
 
-	if context := sdkinput.GetString(input, "context"); context != "" {
+	if context := sdkinput.GetString(input, "context", ""); context != "" {
 		args = append(args, "--context", context)
 	}
 
@@ -521,7 +520,7 @@ func (t *ToolImpl) buildBaseArgs(input map[string]any) []string {
 
 // Health checks if kubectl binary exists
 func (t *ToolImpl) Health(ctx context.Context) types.HealthStatus {
-	if !executor.BinaryExists(BinaryName) {
+	if !exec.BinaryExists(BinaryName) {
 		return types.NewUnhealthyStatus(
 			fmt.Sprintf("%s binary not found in PATH", BinaryName),
 			nil,

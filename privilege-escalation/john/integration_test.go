@@ -14,7 +14,7 @@ import (
 
 func TestJohnIntegration(t *testing.T) {
 	// Skip if john binary is not available
-	if !executor.BinaryExists(BinaryName) {
+	if !exec.BinaryExists(BinaryName) {
 		t.Skipf("skipping integration test: %s binary not found", BinaryName)
 	}
 

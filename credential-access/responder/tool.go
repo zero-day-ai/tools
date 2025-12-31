@@ -103,7 +103,7 @@ func (t *ToolImpl) Execute(ctx context.Context, input map[string]any) (map[strin
 	defer signal.Stop(sigChan)
 
 	// Execute Responder in a goroutine
-	resultChan := make(chan *executor.Result, 1)
+	resultChan := make(chan *exec.Result, 1)
 	errChan := make(chan error, 1)
 
 	go func() {
@@ -120,18 +120,18 @@ func (t *ToolImpl) Execute(ctx context.Context, input map[string]any) (map[strin
 	}()
 
 	// Wait for completion, timeout, or interrupt
-	var result *executor.Result
+	var result *exec.Result
 	select {
 	case <-cmdCtx.Done():
 		// Timeout reached - this is expected behavior for Responder
-		result = &executor.Result{
+		result = &exec.Result{
 			ExitCode: 0,
 			Duration: time.Since(startTime),
 		}
 	case err := <-errChan:
 		// Check if it's a timeout error (which is expected)
 		if strings.Contains(err.Error(), "timed out") {
-			result = &executor.Result{
+			result = &exec.Result{
 				ExitCode: 0,
 				Duration: time.Since(startTime),
 			}
@@ -332,7 +332,7 @@ func (t *ToolImpl) hashesToOutput(hashes []CapturedHash) []map[string]any {
 // Health checks the Responder binary and permissions
 func (t *ToolImpl) Health(ctx context.Context) types.HealthStatus {
 	// Check if Responder.py binary exists
-	if !executor.BinaryExists(BinaryName) {
+	if !exec.BinaryExists(BinaryName) {
 		// Try alternative locations
 		alternatives := []string{
 			"/usr/bin/Responder.py",

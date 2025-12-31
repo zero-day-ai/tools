@@ -10,7 +10,6 @@ import (
 	"time"
 
 	sdkinput "github.com/zero-day-ai/sdk/input"
-	"github.com/zero-day-ai/sdk/toolerr"
 	"github.com/zero-day-ai/sdk/tool"
 	"github.com/zero-day-ai/sdk/types"
 )
@@ -80,24 +79,24 @@ func (t *ToolImpl) Execute(ctx context.Context, input map[string]any) (map[strin
 	start := time.Now()
 	warnings := []string{}
 
-	action := sdkinput.GetString(input, "action")
+	action := sdkinput.GetString(input, "action", "")
 	if action == "" {
 		return nil, fmt.Errorf("action is required")
 	}
 
 	timeout := 10 * time.Second
-	if to := sdkinput.GetInt(input, "timeout"); to > 0 {
+	if to := sdkinput.GetInt(input, "timeout", 0); to > 0 {
 		timeout = time.Duration(to) * time.Second
 	}
 
 	t.client = &http.Client{Timeout: timeout}
 
-	metadataIP := sdkinput.GetString(input, "metadata_ip")
+	metadataIP := sdkinput.GetString(input, "metadata_ip", "")
 	if metadataIP == "" {
 		metadataIP = DefaultMetadataIP
 	}
 
-	provider := sdkinput.GetString(input, "provider")
+	provider := sdkinput.GetString(input, "provider", "")
 
 	var result map[string]any
 	var err error
@@ -222,7 +221,7 @@ func (t *ToolImpl) getCredentials(ctx context.Context, input map[string]any, met
 }
 
 func (t *ToolImpl) getAWSCredentials(ctx context.Context, input map[string]any, metadataIP string) (map[string]any, error) {
-	imdsVersion := sdkinput.GetInt(input, "imds_version")
+	imdsVersion := sdkinput.GetInt(input, "imds_version", 0)
 	if imdsVersion == 0 {
 		imdsVersion = 2
 	}
@@ -428,7 +427,7 @@ func (t *ToolImpl) getIdentity(ctx context.Context, input map[string]any, metada
 }
 
 func (t *ToolImpl) getAWSIdentity(ctx context.Context, input map[string]any, metadataIP string) (map[string]any, error) {
-	imdsVersion := sdkinput.GetInt(input, "imds_version")
+	imdsVersion := sdkinput.GetInt(input, "imds_version", 0)
 	if imdsVersion == 0 {
 		imdsVersion = 2
 	}
@@ -642,7 +641,7 @@ func (t *ToolImpl) getAll(ctx context.Context, input map[string]any, metadataIP,
 
 // customQuery performs a custom metadata query
 func (t *ToolImpl) customQuery(ctx context.Context, input map[string]any, metadataIP string) (map[string]any, error) {
-	path := sdkinput.GetString(input, "path")
+	path := sdkinput.GetString(input, "path", "")
 	if path == "" {
 		return nil, fmt.Errorf("path is required for custom queries")
 	}
@@ -651,7 +650,7 @@ func (t *ToolImpl) customQuery(ctx context.Context, input map[string]any, metada
 	req, _ := http.NewRequestWithContext(ctx, "GET", url, nil)
 
 	// Add provider-specific headers
-	provider := sdkinput.GetString(input, "provider")
+	provider := sdkinput.GetString(input, "provider", "")
 	if provider == "gcp" {
 		req.Header.Set("Metadata-Flavor", "Google")
 	} else if provider == "azure" {

@@ -12,10 +12,10 @@ import (
 
 func TestImpacketIntegration(t *testing.T) {
 	// Check if any of the impacket tools are available
-	toolsAvailable := executor.BinaryExists("psexec.py") ||
-		executor.BinaryExists("wmiexec.py") ||
-		executor.BinaryExists("impacket-psexec") ||
-		executor.BinaryExists("impacket-wmiexec")
+	toolsAvailable := exec.BinaryExists("psexec.py") ||
+		exec.BinaryExists("wmiexec.py") ||
+		exec.BinaryExists("impacket-psexec") ||
+		exec.BinaryExists("impacket-wmiexec")
 
 	if !toolsAvailable {
 		t.Skip("skipping integration test: impacket tools not found")

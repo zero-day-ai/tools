@@ -7,7 +7,6 @@ import (
 	"time"
 
 	sdkinput "github.com/zero-day-ai/sdk/input"
-	"github.com/zero-day-ai/sdk/toolerr"
 	"github.com/zero-day-ai/sdk/exec"
 	"github.com/zero-day-ai/sdk/health"
 	"github.com/zero-day-ai/sdk/tool"
@@ -128,7 +127,7 @@ func (t *ToolImpl) Health(ctx context.Context) types.HealthStatus {
 	}
 
 	for _, script := range scripts {
-		if executor.BinaryExists(script) {
+		if exec.BinaryExists(script) {
 			return types.NewHealthyStatus("impacket scripts available")
 		}
 	}

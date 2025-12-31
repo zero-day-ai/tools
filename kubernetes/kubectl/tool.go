@@ -9,7 +9,6 @@ import (
 	"time"
 
 	sdkinput "github.com/zero-day-ai/sdk/input"
-	"github.com/zero-day-ai/sdk/toolerr"
 	"github.com/zero-day-ai/sdk/exec"
 	"github.com/zero-day-ai/sdk/tool"
 	"github.com/zero-day-ai/sdk/types"
@@ -71,13 +70,13 @@ func (t *ToolImpl) Execute(ctx context.Context, input map[string]any) (map[strin
 
 	// Get timeout
 	timeout := 60 * time.Second
-	if t := sdkinput.GetInt(input, "timeout"); t > 0 {
+	if t := sdkinput.GetInt(input, "timeout", 0); t > 0 {
 		timeout = time.Duration(t) * time.Second
 	}
 
 	// Build environment variables
 	env := os.Environ()
-	if kubeconfig := sdkinput.GetString(input, "kubeconfig"); kubeconfig != "" {
+	if kubeconfig := sdkinput.GetString(input, "kubeconfig", ""); kubeconfig != "" {
 		env = append(env, fmt.Sprintf("KUBECONFIG=%s", kubeconfig))
 	}
 
@@ -150,7 +149,7 @@ func (t *ToolImpl) Execute(ctx context.Context, input map[string]any) (map[strin
 // Health checks if kubectl binary exists and can connect to cluster
 func (t *ToolImpl) Health(ctx context.Context) types.HealthStatus {
 	// Check if kubectl binary exists
-	if !executor.BinaryExists(BinaryName) {
+	if !exec.BinaryExists(BinaryName) {
 		return types.NewUnhealthyStatus(
 			fmt.Sprintf("%s binary not found in PATH", BinaryName),
 			nil,
@@ -177,7 +176,7 @@ func (t *ToolImpl) Health(ctx context.Context) types.HealthStatus {
 // buildKubectlArgs constructs the kubectl command arguments
 func buildKubectlArgs(input map[string]any) ([]string, error) {
 	// Check for raw command first
-	if raw := sdkinput.GetString(input, "raw"); raw != "" {
+	if raw := sdkinput.GetString(input, "raw", ""); raw != "" {
 		// Split raw command into args (simple split, doesn't handle quotes)
 		parts := strings.Fields(raw)
 		if len(parts) == 0 {
@@ -193,49 +192,49 @@ func buildKubectlArgs(input map[string]any) ([]string, error) {
 	args := []string{}
 
 	// Add context if specified
-	if context := sdkinput.GetString(input, "context"); context != "" {
+	if context := sdkinput.GetString(input, "context", ""); context != "" {
 		args = append(args, "--context", context)
 	}
 
 	// Add namespace if specified
-	if ns := sdkinput.GetString(input, "namespace"); ns != "" {
+	if ns := sdkinput.GetString(input, "namespace", ""); ns != "" {
 		args = append(args, "-n", ns)
 	}
 
 	// Add all-namespaces flag
-	if sdkinput.GetBool(input, "all_namespaces") {
+	if sdkinput.GetBool(input, "all_namespaces", false) {
 		args = append(args, "--all-namespaces")
 	}
 
 	// Add command
-	command := sdkinput.GetString(input, "command")
+	command := sdkinput.GetString(input, "command", "")
 	if command == "" {
 		command = "get" // default to get
 	}
 	args = append(args, command)
 
 	// Add resource type
-	if resource := sdkinput.GetString(input, "resource"); resource != "" {
+	if resource := sdkinput.GetString(input, "resource", ""); resource != "" {
 		args = append(args, resource)
 	}
 
 	// Add resource name
-	if name := sdkinput.GetString(input, "name"); name != "" {
+	if name := sdkinput.GetString(input, "name", ""); name != "" {
 		args = append(args, name)
 	}
 
 	// Add label selector
-	if selector := sdkinput.GetString(input, "selector"); selector != "" {
+	if selector := sdkinput.GetString(input, "selector", ""); selector != "" {
 		args = append(args, "-l", selector)
 	}
 
 	// Add field selector
-	if fieldSelector := sdkinput.GetString(input, "field_selector"); fieldSelector != "" {
+	if fieldSelector := sdkinput.GetString(input, "field_selector", ""); fieldSelector != "" {
 		args = append(args, "--field-selector", fieldSelector)
 	}
 
 	// Add output format (default to JSON for structured parsing)
-	output := sdkinput.GetString(input, "output")
+	output := sdkinput.GetString(input, "output", "")
 	if output == "" {
 		output = "json"
 	}

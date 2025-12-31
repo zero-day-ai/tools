@@ -13,8 +13,8 @@ import (
 func TestSecretsdumpIntegration(t *testing.T) {
 	// Skip if secretsdump is not available
 	// Check for both impacket-secretsdump and secretsdump.py
-	binaryAvailable := executor.BinaryExists("impacket-secretsdump") ||
-		executor.BinaryExists("secretsdump.py")
+	binaryAvailable := exec.BinaryExists("impacket-secretsdump") ||
+		exec.BinaryExists("secretsdump.py")
 
 	if !binaryAvailable {
 		t.Skip("skipping integration test: secretsdump binary not found")

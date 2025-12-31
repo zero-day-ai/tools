@@ -9,7 +9,6 @@ import (
 	"time"
 
 	sdkinput "github.com/zero-day-ai/sdk/input"
-	"github.com/zero-day-ai/sdk/toolerr"
 	"github.com/zero-day-ai/sdk/exec"
 	"github.com/zero-day-ai/sdk/tool"
 	"github.com/zero-day-ai/sdk/types"
@@ -75,19 +74,19 @@ func (t *toolWithHealth) Health(ctx context.Context) types.HealthStatus {
 func (t *ToolImpl) Execute(ctx context.Context, input map[string]any) (map[string]any, error) {
 	start := time.Now()
 
-	action := sdkinput.GetString(input, "action")
+	action := sdkinput.GetString(input, "action", "")
 	if action == "" {
 		return nil, fmt.Errorf("action is required")
 	}
 
 	timeout := 60 * time.Second
-	if t := sdkinput.GetInt(input, "timeout"); t > 0 {
+	if t := sdkinput.GetInt(input, "timeout", 0); t > 0 {
 		timeout = time.Duration(t) * time.Second
 	}
 
 	// Build environment
 	env := os.Environ()
-	if kubeconfig := sdkinput.GetString(input, "kubeconfig"); kubeconfig != "" {
+	if kubeconfig := sdkinput.GetString(input, "kubeconfig", ""); kubeconfig != "" {
 		env = append(env, fmt.Sprintf("KUBECONFIG=%s", kubeconfig))
 	}
 
@@ -189,8 +188,8 @@ func (t *ToolImpl) whoamiFallback(ctx context.Context, input map[string]any, env
 
 // canI checks if an action is allowed
 func (t *ToolImpl) canI(ctx context.Context, input map[string]any, env []string, timeout time.Duration) (map[string]any, error) {
-	verb := sdkinput.GetString(input, "verb")
-	resource := sdkinput.GetString(input, "resource")
+	verb := sdkinput.GetString(input, "verb", "")
+	resource := sdkinput.GetString(input, "resource", "")
 
 	if verb == "" || resource == "" {
 		return nil, fmt.Errorf("verb and resource are required for can-i")
@@ -200,17 +199,17 @@ func (t *ToolImpl) canI(ctx context.Context, input map[string]any, env []string,
 	args = append(args, "auth", "can-i", verb, resource)
 
 	// Add subresource if specified
-	if subresource := sdkinput.GetString(input, "subresource"); subresource != "" {
+	if subresource := sdkinput.GetString(input, "subresource", ""); subresource != "" {
 		args[len(args)-1] = resource + "/" + subresource
 	}
 
 	// Add resource name if specified
-	if resourceName := sdkinput.GetString(input, "resource_name"); resourceName != "" {
+	if resourceName := sdkinput.GetString(input, "resource_name", ""); resourceName != "" {
 		args = append(args, resourceName)
 	}
 
 	// Add namespace
-	if ns := sdkinput.GetString(input, "namespace"); ns != "" {
+	if ns := sdkinput.GetString(input, "namespace", ""); ns != "" {
 		args = append(args, "-n", ns)
 	}
 
@@ -243,9 +242,9 @@ func (t *ToolImpl) listRoles(ctx context.Context, input map[string]any, env []st
 
 	// Get roles
 	args := t.buildBaseArgs(input)
-	if sdkinput.GetBool(input, "all_namespaces") {
+	if sdkinput.GetBool(input, "all_namespaces", false) {
 		args = append(args, "get", "roles", "--all-namespaces", "-o", "json")
-	} else if ns := sdkinput.GetString(input, "namespace"); ns != "" {
+	} else if ns := sdkinput.GetString(input, "namespace", ""); ns != "" {
 		args = append(args, "get", "roles", "-n", ns, "-o", "json")
 	} else {
 		args = append(args, "get", "roles", "-o", "json")
@@ -300,9 +299,9 @@ func (t *ToolImpl) listBindings(ctx context.Context, input map[string]any, env [
 
 	// Get role bindings
 	args := t.buildBaseArgs(input)
-	if sdkinput.GetBool(input, "all_namespaces") {
+	if sdkinput.GetBool(input, "all_namespaces", false) {
 		args = append(args, "get", "rolebindings", "--all-namespaces", "-o", "json")
-	} else if ns := sdkinput.GetString(input, "namespace"); ns != "" {
+	} else if ns := sdkinput.GetString(input, "namespace", ""); ns != "" {
 		args = append(args, "get", "rolebindings", "-n", ns, "-o", "json")
 	} else {
 		args = append(args, "get", "rolebindings", "-o", "json")
@@ -381,10 +380,10 @@ func (t *ToolImpl) checkEscalation(ctx context.Context, input map[string]any, en
 				"verb":     verb,
 				"resource": resource,
 			}
-			if ns := sdkinput.GetString(input, "namespace"); ns != "" {
+			if ns := sdkinput.GetString(input, "namespace", ""); ns != "" {
 				checkInput["namespace"] = ns
 			}
-			if context := sdkinput.GetString(input, "context"); context != "" {
+			if context := sdkinput.GetString(input, "context", ""); context != "" {
 				checkInput["context"] = context
 			}
 
@@ -486,11 +485,11 @@ func (t *ToolImpl) checkEscalationPattern(verb, resource string) map[string]any 
 func (t *ToolImpl) buildBaseArgs(input map[string]any) []string {
 	args := []string{}
 
-	if context := sdkinput.GetString(input, "context"); context != "" {
+	if context := sdkinput.GetString(input, "context", ""); context != "" {
 		args = append(args, "--context", context)
 	}
 
-	if asUser := sdkinput.GetString(input, "as_user"); asUser != "" {
+	if asUser := sdkinput.GetString(input, "as_user", ""); asUser != "" {
 		args = append(args, "--as", asUser)
 	}
 
@@ -505,7 +504,7 @@ func (t *ToolImpl) buildBaseArgs(input map[string]any) []string {
 
 // Health checks if kubectl binary exists
 func (t *ToolImpl) Health(ctx context.Context) types.HealthStatus {
-	if !executor.BinaryExists(BinaryName) {
+	if !exec.BinaryExists(BinaryName) {
 		return types.NewUnhealthyStatus(
 			fmt.Sprintf("%s binary not found in PATH", BinaryName),
 			nil,

@@ -100,7 +100,7 @@ func (t *ToolImpl) Execute(ctx context.Context, input map[string]any) (map[strin
 // findBinary locates an available crackmapexec/netexec binary
 func (t *ToolImpl) findBinary() (string, error) {
 	for _, name := range BinaryNames {
-		if executor.BinaryExists(name) {
+		if exec.BinaryExists(name) {
 			return name, nil
 		}
 	}
@@ -396,7 +396,7 @@ func (t *ToolImpl) getTimeout(input map[string]any) time.Duration {
 func (t *ToolImpl) Health(ctx context.Context) types.HealthStatus {
 	// Try to find any supported binary
 	for _, name := range BinaryNames {
-		if executor.BinaryExists(name) {
+		if exec.BinaryExists(name) {
 			return types.NewHealthyStatus(fmt.Sprintf("%s is available", name))
 		}
 	}

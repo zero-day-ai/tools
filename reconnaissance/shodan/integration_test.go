@@ -14,7 +14,7 @@ import (
 
 func TestShodanIntegration(t *testing.T) {
 	// Skip if shodan binary is not available
-	if !executor.BinaryExists(BinaryName) {
+	if !exec.BinaryExists(BinaryName) {
 		t.Skipf("skipping integration test: %s binary not found", BinaryName)
 	}
 

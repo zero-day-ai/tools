@@ -9,7 +9,6 @@ import (
 	"time"
 
 	sdkinput "github.com/zero-day-ai/sdk/input"
-	"github.com/zero-day-ai/sdk/toolerr"
 	"github.com/zero-day-ai/sdk/exec"
 	"github.com/zero-day-ai/sdk/tool"
 	"github.com/zero-day-ai/sdk/types"
@@ -84,13 +83,13 @@ func (t *toolWithHealth) Health(ctx context.Context) types.HealthStatus {
 func (t *ToolImpl) Execute(ctx context.Context, input map[string]any) (map[string]any, error) {
 	start := time.Now()
 
-	action := sdkinput.GetString(input, "action")
+	action := sdkinput.GetString(input, "action", "")
 	if action == "" {
 		return nil, fmt.Errorf("action is required")
 	}
 
 	timeout := 30 * time.Second
-	if to := sdkinput.GetInt(input, "timeout"); to > 0 {
+	if to := sdkinput.GetInt(input, "timeout", 0); to > 0 {
 		timeout = time.Duration(to) * time.Second
 	}
 
@@ -131,7 +130,7 @@ func (t *ToolImpl) Execute(ctx context.Context, input map[string]any) (map[strin
 
 // detectRuntime auto-detects the container runtime
 func (t *ToolImpl) detectRuntime(ctx context.Context, input map[string]any, timeout time.Duration) (map[string]any, error) {
-	customSocket := sdkinput.GetString(input, "socket_path")
+	customSocket := sdkinput.GetString(input, "socket_path", "")
 
 	// Check for containerd
 	if containerd := t.checkContainerd(ctx, customSocket, timeout); containerd.Available {
@@ -169,7 +168,7 @@ func (t *ToolImpl) detectRuntime(ctx context.Context, input map[string]any, time
 func (t *ToolImpl) checkContainerd(ctx context.Context, customSocket string, timeout time.Duration) RuntimeInfo {
 	info := RuntimeInfo{Name: "containerd", Binary: "crictl"}
 
-	if !executor.BinaryExists("crictl") {
+	if !exec.BinaryExists("crictl") {
 		return info
 	}
 
@@ -199,7 +198,7 @@ func (t *ToolImpl) checkContainerd(ctx context.Context, customSocket string, tim
 func (t *ToolImpl) checkDocker(ctx context.Context, customSocket string, timeout time.Duration) RuntimeInfo {
 	info := RuntimeInfo{Name: "docker", Binary: "docker"}
 
-	if !executor.BinaryExists("docker") {
+	if !exec.BinaryExists("docker") {
 		return info
 	}
 
@@ -228,7 +227,7 @@ func (t *ToolImpl) checkDocker(ctx context.Context, customSocket string, timeout
 func (t *ToolImpl) checkCRIO(ctx context.Context, customSocket string, timeout time.Duration) RuntimeInfo {
 	info := RuntimeInfo{Name: "crio", Binary: "crictl"}
 
-	if !executor.BinaryExists("crictl") {
+	if !exec.BinaryExists("crictl") {
 		return info
 	}
 
@@ -262,12 +261,12 @@ func (t *ToolImpl) listContainers(ctx context.Context, input map[string]any, tim
 	}
 
 	var args []string
-	var result *executor.Result
+	var result *exec.Result
 	var err error
 
 	if runtime.Name == "docker" {
 		args = []string{"-H", "unix://" + runtime.SocketPath, "ps", "--format", "json"}
-		if sdkinput.GetBool(input, "all") {
+		if sdkinput.GetBool(input, "all", false) {
 			args = append(args[:3], append([]string{"-a"}, args[3:]...)...)
 		}
 		result, err = exec.Run(ctx, exec.Config{
@@ -277,7 +276,7 @@ func (t *ToolImpl) listContainers(ctx context.Context, input map[string]any, tim
 		})
 	} else {
 		args = []string{"--runtime-endpoint", "unix://" + runtime.SocketPath, "ps", "-o", "json"}
-		if sdkinput.GetBool(input, "all") {
+		if sdkinput.GetBool(input, "all", false) {
 			args = append(args, "-a")
 		}
 		result, err = exec.Run(ctx, exec.Config{
@@ -316,7 +315,7 @@ func (t *ToolImpl) listContainers(ctx context.Context, input map[string]any, tim
 
 // inspectContainer inspects a specific container
 func (t *ToolImpl) inspectContainer(ctx context.Context, input map[string]any, timeout time.Duration) (map[string]any, error) {
-	containerID := sdkinput.GetString(input, "container_id")
+	containerID := sdkinput.GetString(input, "container_id", "")
 	if containerID == "" {
 		return nil, fmt.Errorf("container_id is required")
 	}
@@ -327,7 +326,7 @@ func (t *ToolImpl) inspectContainer(ctx context.Context, input map[string]any, t
 	}
 
 	var args []string
-	var result *executor.Result
+	var result *exec.Result
 	var err error
 
 	if runtime.Name == "docker" {
@@ -457,7 +456,7 @@ func (t *ToolImpl) analyzeEscapeVectors(containerInfo any) []any {
 
 // execInContainer executes a command in a container
 func (t *ToolImpl) execInContainer(ctx context.Context, input map[string]any, timeout time.Duration) (map[string]any, error) {
-	containerID := sdkinput.GetString(input, "container_id")
+	containerID := sdkinput.GetString(input, "container_id", "")
 	if containerID == "" {
 		return nil, fmt.Errorf("container_id is required")
 	}
@@ -473,7 +472,7 @@ func (t *ToolImpl) execInContainer(ctx context.Context, input map[string]any, ti
 	}
 
 	var args []string
-	var result *executor.Result
+	var result *exec.Result
 	var err error
 
 	if runtime.Name == "docker" {
@@ -513,7 +512,7 @@ func (t *ToolImpl) execInContainer(ctx context.Context, input map[string]any, ti
 
 // getContainerLogs gets container logs
 func (t *ToolImpl) getContainerLogs(ctx context.Context, input map[string]any, timeout time.Duration) (map[string]any, error) {
-	containerID := sdkinput.GetString(input, "container_id")
+	containerID := sdkinput.GetString(input, "container_id", "")
 	if containerID == "" {
 		return nil, fmt.Errorf("container_id is required")
 	}
@@ -523,13 +522,13 @@ func (t *ToolImpl) getContainerLogs(ctx context.Context, input map[string]any, t
 		return nil, fmt.Errorf("no accessible container runtime found")
 	}
 
-	tail := sdkinput.GetInt(input, "tail")
+	tail := sdkinput.GetInt(input, "tail", 0)
 	if tail == 0 {
 		tail = 100
 	}
 
 	var args []string
-	var result *executor.Result
+	var result *exec.Result
 	var err error
 
 	if runtime.Name == "docker" {
@@ -570,7 +569,7 @@ func (t *ToolImpl) listImages(ctx context.Context, input map[string]any, timeout
 	}
 
 	var args []string
-	var result *executor.Result
+	var result *exec.Result
 	var err error
 
 	if runtime.Name == "docker" {
@@ -663,8 +662,8 @@ func (t *ToolImpl) checkSockets(ctx context.Context, input map[string]any, timeo
 
 // getRuntime determines which runtime to use
 func (t *ToolImpl) getRuntime(ctx context.Context, input map[string]any, timeout time.Duration) RuntimeInfo {
-	runtimeName := sdkinput.GetString(input, "runtime")
-	customSocket := sdkinput.GetString(input, "socket_path")
+	runtimeName := sdkinput.GetString(input, "runtime", "")
+	customSocket := sdkinput.GetString(input, "socket_path", "")
 
 	if runtimeName == "" || runtimeName == "auto" {
 		// Auto-detect
@@ -694,10 +693,10 @@ func (t *ToolImpl) getRuntime(ctx context.Context, input map[string]any, timeout
 
 // Health checks if any container runtime is available
 func (t *ToolImpl) Health(ctx context.Context) types.HealthStatus {
-	if executor.BinaryExists("crictl") {
+	if exec.BinaryExists("crictl") {
 		return types.NewHealthyStatus("crictl binary available")
 	}
-	if executor.BinaryExists("docker") {
+	if exec.BinaryExists("docker") {
 		return types.NewHealthyStatus("docker binary available")
 	}
 	return types.NewUnhealthyStatus("no container runtime binaries found (crictl or docker)", nil)
