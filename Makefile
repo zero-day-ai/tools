@@ -65,6 +65,7 @@ CREDENTIAL_ACCESS_TOOLS := \
 # Discovery Tools (TA0007)
 DISCOVERY_TOOLS := \
 	discovery/nmap \
+	discovery/ping \
 	discovery/bloodhound
 
 # Lateral Movement Tools (TA0008)
