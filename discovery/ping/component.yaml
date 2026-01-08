@@ -1,0 +1,24 @@
+kind: tool
+name: ping
+version: 1.0.0
+description: ICMP ping sweep tool for network host discovery
+author: Gibson Security Team
+license: MIT
+repository: https://github.com/zero-day-ai/gibson-tools-official
+
+build:
+  command: go build -o ping .
+  artifacts:
+    - ping
+  workdir: .
+
+runtime:
+  type: go
+  entrypoint: ./ping
+  port: 0
+
+dependencies:
+  gibson: ">=1.0.0"
+  system:
+    - ping  # ping must be installed (typically pre-installed on Linux/macOS)
+  env: {}
