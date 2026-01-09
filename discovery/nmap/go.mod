@@ -2,7 +2,7 @@ module github.com/zero-day-ai/gibson-tools-official/discovery/nmap
 
 go 1.24.4
 
-require github.com/zero-day-ai/sdk v0.3.0
+require github.com/zero-day-ai/sdk v0.8.0
 
 require (
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
@@ -26,7 +26,3 @@ require (
 	google.golang.org/grpc v1.78.0 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
 )
-
-replace github.com/zero-day-ai/sdk => /home/anthony/Code/zero-day.ai/opensource/sdk
-
-replace github.com/zero-day-ai/gibson => /home/anthony/Code/zero-day.ai/opensource/gibson

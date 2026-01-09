@@ -34,6 +34,4 @@ require (
 	google.golang.org/protobuf v1.36.11 // indirect
 )
 
-replace github.com/zero-day-ai/sdk => /home/anthony/Code/zero-day.ai/opensource/sdk
 
-replace github.com/zero-day-ai/gibson => /home/anthony/Code/zero-day.ai/opensource/gibson
