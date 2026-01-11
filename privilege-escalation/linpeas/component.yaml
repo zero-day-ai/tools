@@ -16,6 +16,10 @@ runtime:
   type: go
   entrypoint: ./linpeas
   port: 0
+  timeout:
+    default: 5m
+    min: 1m
+    max: 15m
 
 dependencies:
   gibson: ">=1.0.0"

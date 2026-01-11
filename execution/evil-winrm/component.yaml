@@ -16,6 +16,10 @@ runtime:
   type: go
   entrypoint: ./evil-winrm
   port: 0
+  timeout:
+    default: 10m
+    min: 30s
+    max: 1h
 
 dependencies:
   gibson: ">=1.0.0"

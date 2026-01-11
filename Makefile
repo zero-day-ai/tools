@@ -107,7 +107,7 @@ BINARIES := $(foreach tool,$(ALL_TOOLS),$(BIN_DIR)/$(notdir $(tool)))
 .DEFAULT_GOAL := all
 
 # Phony targets
-.PHONY: all build test integration-test clean help \
+.PHONY: all bin build test integration-test clean help \
 	build-recon build-resource-dev build-initial-access build-execution \
 	build-persistence build-privesc build-defense-evasion build-credential-access \
 	build-discovery build-lateral-movement build-collection build-c2 \
@@ -121,6 +121,7 @@ help:
 	@echo ""
 	@echo "Available targets:"
 	@echo "  all              - Build and test all tools (default)"
+	@echo "  bin              - Alias for build (consistency with other components)"
 	@echo "  build            - Build all tools to bin/ directory"
 	@echo "  test             - Run all unit tests"
 	@echo "  integration-test - Run integration tests (requires binaries installed)"
@@ -157,6 +158,9 @@ help:
 
 # All target - build and test
 all: build test
+
+# Alias for build (consistency with other components)
+bin: build
 
 # Build all tools
 build: $(BIN_DIR)

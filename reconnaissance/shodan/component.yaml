@@ -16,6 +16,10 @@ runtime:
   type: go
   entrypoint: ./shodan
   port: 0
+  timeout:
+    default: 2m
+    min: 10s
+    max: 10m
 
 dependencies:
   gibson: ">=1.0.0"

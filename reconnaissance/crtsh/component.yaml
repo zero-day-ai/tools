@@ -16,6 +16,10 @@ runtime:
   type: go
   entrypoint: ./crtsh
   port: 0  # Dynamic port assignment
+  timeout:
+    default: 1m
+    min: 10s
+    max: 5m
 
 dependencies:
   gibson: ">=1.0.0"

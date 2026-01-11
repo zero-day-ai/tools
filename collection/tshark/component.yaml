@@ -16,6 +16,10 @@ runtime:
   type: go
   entrypoint: ./tshark
   port: 0
+  timeout:
+    default: 5m
+    min: 10s
+    max: 30m
 
 dependencies:
   gibson: ">=1.0.0"

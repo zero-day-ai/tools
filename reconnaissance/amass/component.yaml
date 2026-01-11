@@ -16,6 +16,10 @@ runtime:
   type: go
   entrypoint: ./amass
   port: 0
+  timeout:
+    default: 10m
+    min: 1m
+    max: 1h
 
 dependencies:
   gibson: ">=1.0.0"

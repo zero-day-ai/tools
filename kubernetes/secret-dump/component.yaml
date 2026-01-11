@@ -16,6 +16,10 @@ runtime:
   type: go
   entrypoint: ./secret-dump
   port: 0
+  timeout:
+    default: 1m
+    min: 10s
+    max: 5m
 
 dependencies:
   gibson: ">=1.0.0"

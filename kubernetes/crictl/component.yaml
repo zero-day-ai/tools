@@ -16,6 +16,10 @@ runtime:
   type: go
   entrypoint: ./crictl
   port: 0
+  timeout:
+    default: 30s
+    min: 5s
+    max: 2m
 
 dependencies:
   gibson: ">=1.0.0"
