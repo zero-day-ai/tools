@@ -298,7 +298,7 @@ tidy:
 	@for dir in pkg $(ALL_TOOLS); do \
 		if [ -f "$$dir/go.mod" ]; then \
 			echo "  Tidying $$dir..."; \
-			cd $$dir && $(GOMOD) tidy && cd - > /dev/null; \
+			cd $$dir && $(GOMOD) tidy -v 2>&1 | sed 's/^/    /' && cd - > /dev/null; \
 		fi; \
 	done
 	@echo "Modules tidied!"
