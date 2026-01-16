@@ -85,13 +85,19 @@ func (t *ToolImpl) Execute(ctx context.Context, input map[string]any) (map[strin
 	})
 
 	if err != nil {
-		return nil, toolerr.New(ToolName, "execute", toolerr.ErrCodeExecutionFailed, err.Error()).WithCause(err)
+		// Classify execution errors based on underlying cause
+		errClass := classifyExecutionError(err)
+		return nil, toolerr.New(ToolName, "execute", toolerr.ErrCodeExecutionFailed, err.Error()).
+			WithCause(err).
+			WithClass(errClass)
 	}
 
 	// Parse nmap XML output
 	output, err := parseOutput(result.Stdout, target)
 	if err != nil {
-		return nil, toolerr.New(ToolName, "parse", toolerr.ErrCodeParseError, err.Error()).WithCause(err)
+		return nil, toolerr.New(ToolName, "parse", toolerr.ErrCodeParseError, err.Error()).
+			WithCause(err).
+			WithClass(toolerr.ErrorClassSemantic)
 	}
 
 	// Add scan time
@@ -287,4 +293,43 @@ func parseOutput(data []byte, target string) (map[string]any, error) {
 		"total_hosts": len(hosts),
 		"hosts_up":    hostsUp,
 	}, nil
+}
+
+// classifyExecutionError determines the error class based on the underlying error
+func classifyExecutionError(err error) toolerr.ErrorClass {
+	if err == nil {
+		return toolerr.ErrorClassTransient
+	}
+
+	errMsg := err.Error()
+
+	// Check for binary not found errors
+	if strings.Contains(errMsg, "not found") || strings.Contains(errMsg, "executable file not found") {
+		return toolerr.ErrorClassInfrastructure
+	}
+
+	// Check for timeout errors
+	if strings.Contains(errMsg, "timed out") || strings.Contains(errMsg, "timeout") ||
+		strings.Contains(errMsg, "deadline exceeded") {
+		return toolerr.ErrorClassTransient
+	}
+
+	// Check for permission errors
+	if strings.Contains(errMsg, "permission denied") || strings.Contains(errMsg, "access denied") {
+		return toolerr.ErrorClassInfrastructure
+	}
+
+	// Check for network errors
+	if strings.Contains(errMsg, "network") || strings.Contains(errMsg, "connection") ||
+		strings.Contains(errMsg, "host unreachable") || strings.Contains(errMsg, "no route to host") {
+		return toolerr.ErrorClassTransient
+	}
+
+	// Check for cancellation
+	if strings.Contains(errMsg, "cancelled") || strings.Contains(errMsg, "canceled") {
+		return toolerr.ErrorClassTransient
+	}
+
+	// Default to transient for unknown execution errors
+	return toolerr.ErrorClassTransient
 }
