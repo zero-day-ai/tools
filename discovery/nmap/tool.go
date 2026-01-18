@@ -196,10 +196,17 @@ type NmapHostname struct {
 
 // NmapPort represents a port
 type NmapPort struct {
-	Protocol string      `xml:"protocol,attr"`
-	PortID   int         `xml:"portid,attr"`
-	State    NmapState   `xml:"state"`
-	Service  NmapService `xml:"service"`
+	Protocol string        `xml:"protocol,attr"`
+	PortID   int           `xml:"portid,attr"`
+	State    NmapState     `xml:"state"`
+	Service  NmapService   `xml:"service"`
+	Scripts  []NmapScript  `xml:"script"`
+}
+
+// NmapScript represents an NSE script result
+type NmapScript struct {
+	ID     string `xml:"id,attr"`
+	Output string `xml:"output,attr"`
 }
 
 // NmapState represents port state
@@ -209,9 +216,10 @@ type NmapState struct {
 
 // NmapService represents a service
 type NmapService struct {
-	Name    string `xml:"name,attr"`
-	Product string `xml:"product,attr"`
-	Version string `xml:"version,attr"`
+	Name    string   `xml:"name,attr"`
+	Product string   `xml:"product,attr"`
+	Version string   `xml:"version,attr"`
+	CPE     []string `xml:"cpe"`
 }
 
 // NmapOS represents OS detection results
@@ -221,7 +229,16 @@ type NmapOS struct {
 
 // NmapOSMatch represents an OS match
 type NmapOSMatch struct {
-	Name     string `xml:"name,attr"`
+	Name      string        `xml:"name,attr"`
+	Accuracy  string        `xml:"accuracy,attr"`
+	OSClasses []NmapOSClass `xml:"osclass"`
+}
+
+// NmapOSClass represents an OS classification
+type NmapOSClass struct {
+	Family   string `xml:"family,attr"`
+	Vendor   string `xml:"vendor,attr"`
+	OSGen    string `xml:"osgen,attr"`
 	Accuracy string `xml:"accuracy,attr"`
 }
 
@@ -255,10 +272,22 @@ func parseOutput(data []byte, target string) (map[string]any, error) {
 			hostname = host.Hostnames[0].Name
 		}
 
-		// Get OS
+		// Get OS information
 		os := ""
+		osAccuracy := 0
+		osFamily := ""
+		osVendor := ""
 		if len(host.OS.OSMatches) > 0 {
 			os = host.OS.OSMatches[0].Name
+			// Parse accuracy as integer
+			if acc := host.OS.OSMatches[0].Accuracy; acc != "" {
+				fmt.Sscanf(acc, "%d", &osAccuracy)
+			}
+			// Get OS class details from first match if available
+			if len(host.OS.OSMatches[0].OSClasses) > 0 {
+				osFamily = host.OS.OSMatches[0].OSClasses[0].Family
+				osVendor = host.OS.OSMatches[0].OSClasses[0].Vendor
+			}
 		}
 
 		// Get ports
@@ -269,22 +298,79 @@ func parseOutput(data []byte, target string) (map[string]any, error) {
 				version = fmt.Sprintf("%s %s", version, port.Service.Version)
 			}
 
-			ports = append(ports, map[string]any{
+			// Extract CPE identifiers
+			cpe := []string{}
+			if len(port.Service.CPE) > 0 {
+				cpe = port.Service.CPE
+			}
+
+			// Extract NSE script results
+			scripts := []map[string]any{}
+			for _, script := range port.Scripts {
+				scripts = append(scripts, map[string]any{
+					"id":     script.ID,
+					"output": script.Output,
+				})
+			}
+
+			portResult := map[string]any{
 				"port":     port.PortID,
 				"protocol": port.Protocol,
 				"state":    port.State.State,
 				"service":  port.Service.Name,
 				"version":  strings.TrimSpace(version),
-			})
+			}
+
+			// Only include CPE if present
+			if len(cpe) > 0 {
+				portResult["cpe"] = cpe
+			}
+
+			// Only include scripts if present
+			if len(scripts) > 0 {
+				portResult["scripts"] = scripts
+			}
+
+			// Add service details for graph creation if service name is present
+			if port.Service.Name != "" {
+				serviceDetails := map[string]any{
+					"name": port.Service.Name,
+				}
+				if port.Service.Product != "" {
+					serviceDetails["product"] = port.Service.Product
+				}
+				if port.Service.Version != "" {
+					serviceDetails["version"] = port.Service.Version
+				}
+				if len(cpe) > 0 {
+					serviceDetails["cpe"] = cpe
+				}
+				portResult["service_details"] = serviceDetails
+			}
+
+			ports = append(ports, portResult)
 		}
 
-		hosts = append(hosts, map[string]any{
+		hostResult := map[string]any{
 			"ip":       ip,
 			"hostname": hostname,
 			"state":    host.Status.State,
 			"os":       os,
 			"ports":    ports,
-		})
+		}
+
+		// Only include OS details if available
+		if osAccuracy > 0 {
+			hostResult["os_accuracy"] = osAccuracy
+		}
+		if osFamily != "" {
+			hostResult["os_family"] = osFamily
+		}
+		if osVendor != "" {
+			hostResult["os_vendor"] = osVendor
+		}
+
+		hosts = append(hosts, hostResult)
 	}
 
 	return map[string]any{

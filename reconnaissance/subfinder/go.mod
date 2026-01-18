@@ -2,7 +2,7 @@ module github.com/zero-day-ai/gibson-tools-official/reconnaissance/subfinder
 
 go 1.24.4
 
-require github.com/zero-day-ai/sdk v0.19.0
+require github.com/zero-day-ai/sdk v0.21.0
 
 require (
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect

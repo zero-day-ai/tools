@@ -188,6 +188,91 @@ func TestParseOutput(t *testing.T) {
 		if port["version"] != "nginx 1.20.0" {
 			t.Errorf("expected version='nginx 1.20.0', got %v", port["version"])
 		}
+
+		// Verify service_details is populated for graph creation
+		serviceDetails, ok := port["service_details"].(map[string]any)
+		if !ok {
+			t.Fatalf("expected service_details to be map[string]any, got %T", port["service_details"])
+		}
+
+		if serviceDetails["name"] != "http" {
+			t.Errorf("expected service_details.name=http, got %v", serviceDetails["name"])
+		}
+
+		if serviceDetails["product"] != "nginx" {
+			t.Errorf("expected service_details.product=nginx, got %v", serviceDetails["product"])
+		}
+
+		if serviceDetails["version"] != "1.20.0" {
+			t.Errorf("expected service_details.version=1.20.0, got %v", serviceDetails["version"])
+		}
+	})
+
+	t.Run("service_details should not be created when service name is empty", func(t *testing.T) {
+		xmlWithNoService := []byte(`<?xml version="1.0"?>
+<nmaprun>
+	<host>
+		<status state="up"/>
+		<address addr="192.168.1.1" addrtype="ipv4"/>
+		<ports>
+			<port protocol="tcp" portid="80">
+				<state state="open"/>
+				<service name=""/>
+			</port>
+		</ports>
+	</host>
+</nmaprun>`)
+
+		output, err := parseOutput(xmlWithNoService, "192.168.1.1")
+		if err != nil {
+			t.Fatalf("unexpected error parsing XML: %v", err)
+		}
+
+		hosts := output["hosts"].([]map[string]any)
+		ports := hosts[0]["ports"].([]map[string]any)
+		port := ports[0]
+
+		if _, exists := port["service_details"]; exists {
+			t.Errorf("service_details should not exist when service name is empty")
+		}
+	})
+
+	t.Run("service_details should include CPE when present", func(t *testing.T) {
+		xmlWithCPE := []byte(`<?xml version="1.0"?>
+<nmaprun>
+	<host>
+		<status state="up"/>
+		<address addr="192.168.1.1" addrtype="ipv4"/>
+		<ports>
+			<port protocol="tcp" portid="22">
+				<state state="open"/>
+				<service name="ssh" product="OpenSSH" version="8.2p1">
+					<cpe>cpe:/a:openbsd:openssh:8.2p1</cpe>
+				</service>
+			</port>
+		</ports>
+	</host>
+</nmaprun>`)
+
+		output, err := parseOutput(xmlWithCPE, "192.168.1.1")
+		if err != nil {
+			t.Fatalf("unexpected error parsing XML: %v", err)
+		}
+
+		hosts := output["hosts"].([]map[string]any)
+		ports := hosts[0]["ports"].([]map[string]any)
+		port := ports[0]
+
+		serviceDetails := port["service_details"].(map[string]any)
+		cpe := serviceDetails["cpe"].([]string)
+
+		if len(cpe) != 1 {
+			t.Fatalf("expected 1 CPE, got %d", len(cpe))
+		}
+
+		if cpe[0] != "cpe:/a:openbsd:openssh:8.2p1" {
+			t.Errorf("expected CPE='cpe:/a:openbsd:openssh:8.2p1', got %v", cpe[0])
+		}
 	})
 }
 

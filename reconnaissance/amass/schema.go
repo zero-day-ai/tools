@@ -71,29 +71,39 @@ func OutputSchema() schema.JSON {
 		},
 	})
 
-	// ASN info schema
+	// ASN info schema with associated IPs
+	asnIPSchema := schema.String().WithTaxonomy(schema.TaxonomyMapping{
+		// Create HOSTED_BY relationships from each IP to the parent ASN
+		Relationships: []schema.RelationshipMapping{
+			schema.Rel("HOSTED_BY", "host:{.}", "asn:{_parent.number}"),
+		},
+	})
+
 	asnSchema := schema.Object(map[string]schema.JSON{
-		"asn":         schema.Int(),
+		"number":      schema.Int(),
 		"description": schema.String(),
 		"country":     schema.String(),
+		"ips":         schema.Array(asnIPSchema),
 	}).WithTaxonomy(schema.TaxonomyMapping{
 		NodeType:   "asn",
-		IDTemplate: "asn:{.asn}",
+		IDTemplate: "asn:{.number}",
 		Properties: []schema.PropertyMapping{
-			schema.PropMap("asn", "number"),
+			schema.PropMap("number", "number"),
 			schema.PropMap("description", "description"),
 			schema.PropMap("country", "country"),
 		},
 		Relationships: []schema.RelationshipMapping{
-			schema.Rel("DISCOVERED", "agent_run:{_context.agent_run_id}", "asn:{.asn}"),
+			schema.Rel("DISCOVERED", "agent_run:{_context.agent_run_id}", "asn:{.number}"),
 		},
 	})
 
 	// DNS record schema
 	dnsRecordSchema := schema.Object(map[string]schema.JSON{
-		"name":  schema.String(),
-		"type":  schema.String(),
-		"value": schema.String(),
+		"name":     schema.String(),
+		"type":     schema.String(),
+		"value":    schema.String(),
+		"priority": schema.Int(),
+		"ttl":      schema.Int(),
 	}).WithTaxonomy(schema.TaxonomyMapping{
 		NodeType:   "dns_record",
 		IDTemplate: "dns_record:{.name}:{.type}:{.value}",
@@ -101,6 +111,8 @@ func OutputSchema() schema.JSON {
 			schema.PropMap("name", "name"),
 			schema.PropMap("type", "record_type"),
 			schema.PropMap("value", "value"),
+			schema.PropMap("priority", "priority"),
+			schema.PropMap("ttl", "ttl"),
 		},
 		Relationships: []schema.RelationshipMapping{
 			// Link subdomain to DNS record

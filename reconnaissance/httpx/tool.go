@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"strings"
 	"time"
 
@@ -106,7 +107,12 @@ func (t *ToolImpl) Health(ctx context.Context) types.HealthStatus {
 
 // buildArgs constructs the command-line arguments for httpx
 func buildArgs(followRedirects, statusCode, title, techDetect bool) []string {
-	args := []string{"-json"}
+	args := []string{
+		"-json",
+		"-include-response-header", // Include response headers in output
+		"-include-chain",           // Include redirect chain
+		"-tls-grab",                // Extract TLS certificate information
+	}
 
 	if followRedirects {
 		args = append(args, "-follow-redirects")
@@ -129,13 +135,35 @@ func buildArgs(followRedirects, statusCode, title, techDetect bool) []string {
 	return args
 }
 
+// RedirectHop represents a single hop in a redirect chain
+type RedirectHop struct {
+	URL        string `json:"url"`
+	StatusCode int    `json:"status_code"`
+}
+
+// TLSInfo represents TLS certificate information from httpx
+type TLSInfo struct {
+	Host       string   `json:"host"`
+	IssuerCN   string   `json:"issuer_cn"`
+	IssuerOrg  []string `json:"issuer_org"`
+	SubjectCN  string   `json:"subject_cn"`
+	SubjectOrg []string `json:"subject_org"`
+	NotBefore  string   `json:"not_before"`
+	NotAfter   string   `json:"not_after"`
+	SubjectAN  []string `json:"subject_an"`
+}
+
 // HttpxOutput represents a single JSON line from httpx output
 type HttpxOutput struct {
-	URL          string   `json:"url"`
-	StatusCode   int      `json:"status_code"`
-	Title        string   `json:"title"`
-	ContentType  string   `json:"content_type"`
-	Technologies []string `json:"tech,omitempty"`
+	URL             string              `json:"url"`
+	FinalURL        string              `json:"final_url,omitempty"`
+	StatusCode      int                 `json:"status_code"`
+	Title           string              `json:"title"`
+	ContentType     string              `json:"content_type"`
+	Technologies    []string            `json:"tech,omitempty"`
+	Header          map[string]string   `json:"header,omitempty"`
+	Chain           []map[string]any    `json:"chain,omitempty"`
+	TLS             *TLSInfo            `json:"tls,omitempty"`
 }
 
 // parseOutput parses the JSON output from httpx
@@ -156,13 +184,133 @@ func parseOutput(data []byte) (map[string]any, error) {
 			continue
 		}
 
-		results = append(results, map[string]any{
-			"url":          entry.URL,
-			"status_code":  entry.StatusCode,
-			"title":        entry.Title,
-			"content_type": entry.ContentType,
-			"technologies": entry.Technologies,
-		})
+		// Extract specific headers
+		server := ""
+		xPoweredBy := ""
+		if entry.Header != nil {
+			server = entry.Header["server"]
+			xPoweredBy = entry.Header["x-powered-by"]
+		}
+
+		// Parse redirect chain
+		redirectChain := []RedirectHop{}
+		for _, hop := range entry.Chain {
+			hopURL, _ := hop["request"].(string)
+			hopStatus := 0
+			if statusCode, ok := hop["status_code"].(float64); ok {
+				hopStatus = int(statusCode)
+			}
+			if hopURL != "" {
+				redirectChain = append(redirectChain, RedirectHop{
+					URL:        hopURL,
+					StatusCode: hopStatus,
+				})
+			}
+		}
+
+		// Determine final URL (use FinalURL if present, otherwise URL)
+		finalURL := entry.URL
+		if entry.FinalURL != "" {
+			finalURL = entry.FinalURL
+		}
+
+		// Parse URL to extract host, port, and scheme for cross-tool relationships
+		parsedURL, err := url.Parse(entry.URL)
+		host := ""
+		port := 0
+		scheme := ""
+		if err == nil {
+			scheme = parsedURL.Scheme
+			host = parsedURL.Hostname()
+
+			// Extract port (use default if not specified)
+			portStr := parsedURL.Port()
+			if portStr != "" {
+				fmt.Sscanf(portStr, "%d", &port)
+			} else {
+				// Default ports
+				if scheme == "https" {
+					port = 443
+				} else if scheme == "http" {
+					port = 80
+				}
+			}
+		}
+
+		result := map[string]any{
+			"url":              entry.URL,
+			"status_code":      entry.StatusCode,
+			"title":            entry.Title,
+			"content_type":     entry.ContentType,
+			"technologies":     entry.Technologies,
+			"server":           server,
+			"x_powered_by":     xPoweredBy,
+			"response_headers": entry.Header,
+			"final_url":        finalURL,
+			"host":             host,
+			"port":             port,
+			"scheme":           scheme,
+		}
+
+		// Only add redirect_chain if it exists
+		if len(redirectChain) > 0 {
+			result["redirect_chain"] = redirectChain
+		}
+
+		// Parse and add TLS certificate information (HTTPS only)
+		if entry.TLS != nil {
+			// Build cert_issuer from CN and Org
+			certIssuer := entry.TLS.IssuerCN
+			if len(entry.TLS.IssuerOrg) > 0 {
+				certIssuer = strings.Join(entry.TLS.IssuerOrg, ", ")
+				if entry.TLS.IssuerCN != "" {
+					certIssuer = entry.TLS.IssuerCN + " (" + certIssuer + ")"
+				}
+			}
+
+			// Build cert_subject from CN and Org
+			certSubject := entry.TLS.SubjectCN
+			if len(entry.TLS.SubjectOrg) > 0 {
+				certSubject = strings.Join(entry.TLS.SubjectOrg, ", ")
+				if entry.TLS.SubjectCN != "" {
+					certSubject = entry.TLS.SubjectCN + " (" + certSubject + ")"
+				}
+			}
+
+			// Add flat cert fields to endpoint for backward compatibility
+			if certIssuer != "" {
+				result["cert_issuer"] = certIssuer
+			}
+			if certSubject != "" {
+				result["cert_subject"] = certSubject
+			}
+			if entry.TLS.NotAfter != "" {
+				result["cert_expiry"] = entry.TLS.NotAfter
+			}
+			if len(entry.TLS.SubjectAN) > 0 {
+				result["cert_sans"] = entry.TLS.SubjectAN
+			}
+
+			// Create nested certificate object for GraphRAG
+			// Only create if we have at least a subject (required for ID)
+			if certSubject != "" {
+				certificate := map[string]any{
+					"subject": certSubject,
+				}
+				if certIssuer != "" {
+					certificate["issuer"] = certIssuer
+				}
+				if entry.TLS.NotAfter != "" {
+					certificate["expiry"] = entry.TLS.NotAfter
+				}
+				if len(entry.TLS.SubjectAN) > 0 {
+					certificate["sans"] = entry.TLS.SubjectAN
+				}
+				result["certificate"] = certificate
+			}
+		}
+
+		results = append(results, result)
 
 		if entry.StatusCode >= 200 && entry.StatusCode < 500 {
 			aliveCount++

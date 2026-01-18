@@ -29,8 +29,8 @@ All tools include embedded GraphRAG taxonomy using `schema.TaxonomyMapping` for 
 
 ```bash
 # Clone the repository
-git clone https://github.com/zero-day-ai/gibson-oss-tools.git
-cd gibson-oss-tools
+git clone https://github.com/zero-day-ai/tools.git
+cd tools
 
 # Build all tools
 make build

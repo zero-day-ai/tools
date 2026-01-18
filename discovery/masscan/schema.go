@@ -34,6 +34,7 @@ func OutputSchema() schema.JSON {
 			schema.PropMap("port", "number"),
 			schema.PropMap("protocol", "protocol"),
 			schema.PropMap("state", "state"),
+			schema.PropMap("banner", "banner"),
 		},
 		Relationships: []schema.RelationshipMapping{
 			schema.Rel("HAS_PORT", "host:{_parent.ip}", "port:{_parent.ip}:{.port}:{.protocol}"),

@@ -133,15 +133,134 @@ func buildAmassArgs(domain, mode string, maxDepth int, includeWhois, includeASN 
 
 // AmassOutput represents a single JSON line from amass output
 type AmassOutput struct {
-	Name      string   `json:"name"`
-	Domain    string   `json:"domain"`
-	Addresses []string `json:"addresses"`
-	Tag       string   `json:"tag"`
-	Sources   []string `json:"sources"`
-	Type      string   `json:"type"`
-	ASN       *int     `json:"asn,omitempty"`
-	Desc      string   `json:"desc,omitempty"`
-	Country   string   `json:"country,omitempty"`
+	Name      string            `json:"name"`
+	Domain    string            `json:"domain"`
+	Addresses []AddressWithASN  `json:"addresses"`
+	Tag       string            `json:"tag"`
+	Sources   []string          `json:"sources"`
+	Type      string            `json:"type"`
+}
+
+// AddressWithASN represents an IP address with ASN information from amass
+type AddressWithASN struct {
+	IP   string `json:"ip"`
+	ASN  int    `json:"asn,omitempty"`
+	Desc string `json:"desc,omitempty"`
+}
+
+// ASNResult represents aggregated ASN information
+type ASNResult struct {
+	Number      int      `json:"number"`
+	Description string   `json:"description"`
+	Country     string   `json:"country"`
+	IPs         []string `json:"ips"`
+}
+
+// DNSRecordResult represents a parsed DNS record with all relevant fields
+type DNSRecordResult struct {
+	Type     string `json:"type"`     // A, MX, NS, TXT, SOA, CNAME, PTR, etc.
+	Name     string `json:"name"`     // Domain name
+	Value    string `json:"value"`    // Record value
+	Priority int    `json:"priority"` // For MX records (0 for other types)
+	TTL      int    `json:"ttl"`      // Time to live (0 if not available)
+}
+
+// determineDNSRecordType determines the DNS record type based on tag, type, and sources
+func determineDNSRecordType(tag, recordType string, sources []string) string {
+	// Check explicit type field first
+	recordType = strings.ToUpper(recordType)
+	switch recordType {
+	case "A", "AAAA", "MX", "NS", "TXT", "SOA", "CNAME", "PTR", "SRV":
+		return recordType
+	}
+
+	// Check sources for hints about record type first
+	// This takes priority over generic tags like "dns"
+	for _, source := range sources {
+		sourceUpper := strings.ToUpper(source)
+		// Use word boundaries or specific patterns to avoid false matches
+		// e.g., "DNS" should not match "NS"
+		if strings.Contains(sourceUpper, "MX ") || strings.HasPrefix(sourceUpper, "MX") {
+			return "MX"
+		}
+		// Check for NS but not as part of DNS
+		if (strings.Contains(sourceUpper, "NS ") || strings.HasPrefix(sourceUpper, "NS")) && !strings.Contains(sourceUpper, "DNS") {
+			return "NS"
+		}
+		if strings.Contains(sourceUpper, "TXT ") || strings.HasPrefix(sourceUpper, "TXT") {
+			return "TXT"
+		}
+		if strings.Contains(sourceUpper, "SOA ") || strings.HasPrefix(sourceUpper, "SOA") {
+			return "SOA"
+		}
+	}
+
+	// Check tag field
+	tag = strings.ToUpper(tag)
+	switch tag {
+	case "MX":
+		return "MX"
+	case "NS":
+		return "NS"
+	case "TXT":
+		return "TXT"
+	case "SOA":
+		return "SOA"
+	case "CNAME":
+		return "CNAME"
+	case "PTR":
+		return "PTR"
+	case "SRV":
+		return "SRV"
+	}
+
+	// Default to A record if we can't determine
+	return "A"
+}
+
+// extractDNSRecordValue extracts the DNS record value from the amass output
+func extractDNSRecordValue(entry AmassOutput, recordType string) string {
+	// For most record types, the value is in the name field or addresses
+	switch recordType {
+	case "MX", "NS", "CNAME", "PTR":
+		// For these record types, amass typically puts the target in the name field
+		// or it might be in a separate field depending on amass version
+		if entry.Name != "" {
+			return entry.Name
+		}
+	case "TXT":
+		// TXT records might be in the type field or need special parsing
+		if entry.Type != "" && entry.Type != "txt" && entry.Type != "TXT" {
+			return entry.Type
+		}
+		// Amass might put TXT record content in the name or require special handling
+		return entry.Name
+	case "SOA":
+		// SOA records are complex and might need special parsing
+		// For now, return the name field which might contain SOA data
+		return entry.Name
+	case "A", "AAAA":
+		// For A/AAAA records, addresses contain the IP
+		if len(entry.Addresses) > 0 {
+			return entry.Addresses[0].IP
+		}
+	}
+
+	return ""
+}
+
+// extractMXPriority attempts to extract the priority value from an MX record value
+func extractMXPriority(value string) int {
+	// MX record format is typically "priority hostname"
+	parts := strings.Fields(value)
+	if len(parts) >= 2 {
+		var priority int
+		_, err := fmt.Sscanf(parts[0], "%d", &priority)
+		if err == nil {
+			return priority
+		}
+	}
+	return 0
 }
 
 // parseAmassOutput parses the JSON output from amass
@@ -170,30 +289,79 @@ func parseAmassOutput(data []byte, domain string) (map[string]any, error) {
 			subdomainsMap[entry.Name] = true
 		}
 
-		// Collect IP addresses
-		for _, addr := range entry.Addresses {
-			ipAddressesMap[addr] = true
-		}
+		// Collect IP addresses and process DNS records
+		for _, addrInfo := range entry.Addresses {
+			ipAddressesMap[addrInfo.IP] = true
 
-		// Collect ASN information
-		if entry.ASN != nil && *entry.ASN > 0 {
-			if _, exists := asnInfoMap[*entry.ASN]; !exists {
-				asnInfoMap[*entry.ASN] = map[string]any{
-					"asn":         *entry.ASN,
-					"description": entry.Desc,
-					"country":     entry.Country,
+			// Collect ASN information with associated IPs
+			if addrInfo.ASN > 0 {
+				if existing, exists := asnInfoMap[addrInfo.ASN]; exists {
+					// Add IP to existing ASN entry
+					ips := existing["ips"].([]string)
+					// Check if IP already exists
+					ipExists := false
+					for _, ip := range ips {
+						if ip == addrInfo.IP {
+							ipExists = true
+							break
+						}
+					}
+					if !ipExists && addrInfo.IP != "" {
+						ips = append(ips, addrInfo.IP)
+						existing["ips"] = ips
+					}
+				} else {
+					// Create new ASN entry with IPs array
+					ips := []string{}
+					if addrInfo.IP != "" {
+						ips = append(ips, addrInfo.IP)
+					}
+					asnInfoMap[addrInfo.ASN] = map[string]any{
+						"number":      addrInfo.ASN,
+						"description": addrInfo.Desc,
+						"country":     "", // Not available in this structure
+						"ips":         ips,
+					}
 				}
+			}
+
+			// Create A record for IP addresses
+			if entry.Name != "" && addrInfo.IP != "" {
+				dnsRecords = append(dnsRecords, map[string]any{
+					"name":     entry.Name,
+					"type":     "A",
+					"value":    addrInfo.IP,
+					"priority": 0,
+					"ttl":      0,
+				})
 			}
 		}
 
-		// Create DNS record entry
-		if entry.Name != "" && len(entry.Addresses) > 0 {
-			for _, addr := range entry.Addresses {
-				dnsRecords = append(dnsRecords, map[string]any{
-					"name":  entry.Name,
-					"type":  "A", // Amass primarily returns A records
-					"value": addr,
-				})
+		// Parse DNS record based on tag and type
+		recordType := determineDNSRecordType(entry.Tag, entry.Type, entry.Sources)
+		if recordType != "" && recordType != "A" && entry.Name != "" {
+			// For non-A records, the value might be in different fields
+			value := extractDNSRecordValue(entry, recordType)
+			if value != "" {
+				record := map[string]any{
+					"name":     entry.Name,
+					"type":     recordType,
+					"value":    value,
+					"priority": 0,
+					"ttl":      0,
+				}
+
+				// For MX records, extract priority if available
+				if recordType == "MX" {
+					priority := extractMXPriority(value)
+					if priority > 0 {
+						record["priority"] = priority
+						// Remove priority from value if it was prepended
+						record["value"] = strings.TrimPrefix(value, fmt.Sprintf("%d ", priority))
+					}
+				}
+
+				dnsRecords = append(dnsRecords, record)
 			}
 		}
 	}

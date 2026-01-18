@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"net"
 	"strings"
 	"time"
 
@@ -19,7 +20,15 @@ const (
 	ToolVersion     = "1.0.0"
 	ToolDescription = "Fast passive subdomain enumeration tool using multiple online sources"
 	BinaryName      = "subfinder"
+	DNSTimeout      = 2 * time.Second // Timeout per DNS resolution
 )
+
+// SubdomainResult represents a discovered subdomain with DNS resolution
+type SubdomainResult struct {
+	Name    string   `json:"name"`
+	IPs     []string `json:"ips"`
+	Sources []string `json:"sources"`
+}
 
 // ToolImpl implements the subfinder tool
 type ToolImpl struct{}
@@ -120,17 +129,54 @@ func buildArgs(domain string, silent, recursive, all bool) []string {
 	return args
 }
 
-// parseOutput parses the output from subfinder
+// resolveSubdomains resolves IP addresses for a list of subdomains
+func resolveSubdomains(ctx context.Context, subdomainNames []string) []SubdomainResult {
+	results := make([]SubdomainResult, 0, len(subdomainNames))
+
+	for _, name := range subdomainNames {
+		result := SubdomainResult{
+			Name:    name,
+			IPs:     []string{},
+			Sources: []string{"subfinder"},
+		}
+
+		// Create a context with timeout for DNS resolution
+		dnsCtx, cancel := context.WithTimeout(ctx, DNSTimeout)
+
+		// Resolve IP addresses
+		ips, err := net.DefaultResolver.LookupIP(dnsCtx, "ip4", name)
+		cancel()
+
+		if err == nil {
+			// Convert IPs to string format (IPv4 only)
+			for _, ip := range ips {
+				if ipv4 := ip.To4(); ipv4 != nil {
+					result.IPs = append(result.IPs, ipv4.String())
+				}
+			}
+		}
+		// If resolution fails, continue with empty IPs array
+
+		results = append(results, result)
+	}
+
+	return results
+}
+
+// parseOutput parses the output from subfinder and enriches with DNS resolution
 func parseOutput(data []byte, domain string) (map[string]any, error) {
 	lines := strings.Split(string(data), "\n")
 
-	subdomains := []string{}
+	subdomainNames := []string{}
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
 		if line != "" {
-			subdomains = append(subdomains, line)
+			subdomainNames = append(subdomainNames, line)
 		}
 	}
+
+	// Resolve DNS for all subdomains
+	subdomains := resolveSubdomains(context.Background(), subdomainNames)
 
 	return map[string]any{
 		"domain":     domain,

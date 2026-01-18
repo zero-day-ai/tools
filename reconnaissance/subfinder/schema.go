@@ -30,21 +30,40 @@ func InputSchema() schema.JSON {
 
 // OutputSchema returns the JSON schema for subfinder tool output.
 // Includes embedded taxonomy mappings for GraphRAG integration.
-// Note: subdomains is a string array where each element is the subdomain FQDN.
+// Note: subdomains is now an array of objects with name, ips, and sources.
 func OutputSchema() schema.JSON {
-	// Subdomain schema - each string in the array is a subdomain FQDN
-	// The taxonomy treats each string as the node ID and name
-	subdomainSchema := schema.String().WithTaxonomy(schema.TaxonomyMapping{
-		NodeType:   "subdomain",
-		IDTemplate: "subdomain:{.}", // {.} refers to the string value itself
+	// IP address schema with taxonomy for host node creation
+	ipSchema := schema.String().WithTaxonomy(schema.TaxonomyMapping{
+		NodeType:   "host",
+		IDTemplate: "host:{.}",
 		Properties: []schema.PropertyMapping{
-			schema.PropMap(".", "name"), // The string value is the name
+			schema.PropMap(".", "ip_address"),
+		},
+		Relationships: []schema.RelationshipMapping{
+			schema.Rel("DISCOVERED", "agent_run:{_context.agent_run_id}", "host:{.}"),
+		},
+	})
+
+	// Subdomain schema - each object contains name, ips, and sources
+	subdomainSchema := schema.Object(map[string]schema.JSON{
+		"name": schema.String(),
+		"ips":  schema.Array(ipSchema),
+		"sources": schema.Array(schema.String()),
+	}).WithTaxonomy(schema.TaxonomyMapping{
+		NodeType:   "subdomain",
+		IDTemplate: "subdomain:{.name}",
+		Properties: []schema.PropertyMapping{
+			schema.PropMap("name", "name"),
+			schema.PropMap("ips", "ip_addresses"),
+			schema.PropMap("sources", "sources"),
 		},
 		Relationships: []schema.RelationshipMapping{
 			// Link subdomain to parent domain (from root output)
-			schema.Rel("HAS_SUBDOMAIN", "domain:{_root.domain}", "subdomain:{.}"),
+			schema.Rel("HAS_SUBDOMAIN", "domain:{_root.domain}", "subdomain:{.name}"),
 			// Link agent run to discovered subdomain
-			schema.Rel("DISCOVERED", "agent_run:{_context.agent_run_id}", "subdomain:{.}"),
+			schema.Rel("DISCOVERED", "agent_run:{_context.agent_run_id}", "subdomain:{.name}"),
+			// Link subdomain to resolved IPs
+			schema.Rel("RESOLVES_TO", "subdomain:{.name}", "host:{.ips[*]}"),
 		},
 	})
 

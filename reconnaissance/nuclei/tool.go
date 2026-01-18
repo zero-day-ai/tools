@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"strings"
 	"time"
 
@@ -128,14 +129,30 @@ func buildArgs(target string, templates, severity, tags []string, rateLimit int)
 
 // NucleiOutput represents a single JSON line from nuclei output
 type NucleiOutput struct {
-	TemplateID string `json:"template-id"`
-	Info       struct {
-		Name     string `json:"name"`
-		Severity string `json:"severity"`
-	} `json:"info"`
-	Type      string   `json:"type"`
-	MatchedAt string   `json:"matched-at"`
-	Extracted []string `json:"extracted-results,omitempty"`
+	TemplateID  string   `json:"template-id"`
+	Info        Info     `json:"info"`
+	Type        string   `json:"type"`
+	MatchedAt   string   `json:"matched-at"`
+	Extracted   []string `json:"extracted-results,omitempty"`
+	MatcherName string   `json:"matcher-name,omitempty"`
+}
+
+// Info contains metadata about the nuclei template
+type Info struct {
+	Name           string         `json:"name"`
+	Severity       string         `json:"severity"`
+	Description    string         `json:"description,omitempty"`
+	Remediation    string         `json:"remediation,omitempty"`
+	Reference      []string       `json:"reference,omitempty"`
+	Classification Classification `json:"classification,omitempty"`
+}
+
+// Classification contains vulnerability classification data
+type Classification struct {
+	CVEID       []string `json:"cve-id,omitempty"`
+	CWEID       []string `json:"cwe-id,omitempty"`
+	CVSSScore   float64  `json:"cvss-score,omitempty"`
+	CVSSMetrics string   `json:"cvss-metrics,omitempty"`
 }
 
 // parseOutput parses the JSON output from nuclei
@@ -155,14 +172,70 @@ func parseOutput(data []byte, target string) (map[string]any, error) {
 			continue
 		}
 
-		findings = append(findings, map[string]any{
+		// Parse matched_at URL to extract host, port, and scheme for cross-tool relationships
+		parsedURL, err := url.Parse(entry.MatchedAt)
+		host := ""
+		port := 0
+		scheme := ""
+		if err == nil {
+			scheme = parsedURL.Scheme
+			host = parsedURL.Hostname()
+
+			// Extract port (use default if not specified)
+			portStr := parsedURL.Port()
+			if portStr != "" {
+				fmt.Sscanf(portStr, "%d", &port)
+			} else {
+				// Default ports
+				if scheme == "https" {
+					port = 443
+				} else if scheme == "http" {
+					port = 80
+				}
+			}
+		}
+
+		finding := map[string]any{
 			"template_id":   entry.TemplateID,
 			"template_name": entry.Info.Name,
 			"severity":      entry.Info.Severity,
 			"type":          entry.Type,
 			"matched_at":    entry.MatchedAt,
 			"extracted":     entry.Extracted,
-		})
+			"host":          host,
+			"port":          port,
+			"scheme":        scheme,
+		}
+
+		// Add optional fields if present
+		if entry.MatcherName != "" {
+			finding["matcher_name"] = entry.MatcherName
+		}
+		if entry.Info.Description != "" {
+			finding["description"] = entry.Info.Description
+		}
+		if entry.Info.Remediation != "" {
+			finding["remediation"] = entry.Info.Remediation
+		}
+		if len(entry.Info.Reference) > 0 {
+			finding["references"] = entry.Info.Reference
+		}
+
+		// Add classification data if present
+		if len(entry.Info.Classification.CVEID) > 0 {
+			finding["cve_id"] = entry.Info.Classification.CVEID
+		}
+		if len(entry.Info.Classification.CWEID) > 0 {
+			finding["cwe_id"] = entry.Info.Classification.CWEID
+		}
+		if entry.Info.Classification.CVSSScore > 0 {
+			finding["cvss_score"] = entry.Info.Classification.CVSSScore
+		}
+		if entry.Info.Classification.CVSSMetrics != "" {
+			finding["cvss_metrics"] = entry.Info.Classification.CVSSMetrics
+		}
+
+		findings = append(findings, finding)
 	}
 
 	return map[string]any{
