@@ -4,7 +4,7 @@ go 1.24.4
 
 require (
 	github.com/stretchr/testify v1.11.1
-	github.com/zero-day-ai/sdk v0.21.0
+	github.com/zero-day-ai/sdk v0.23.0
 )
 
 require (
