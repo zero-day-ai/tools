@@ -7,14 +7,15 @@ import (
 	"strings"
 	"time"
 
+	"github.com/zero-day-ai/sdk/api/gen/toolspb"
 	"github.com/zero-day-ai/sdk/exec"
 	"github.com/zero-day-ai/sdk/graphrag/domain"
 	"github.com/zero-day-ai/sdk/health"
 	sdkinput "github.com/zero-day-ai/sdk/input"
-	"github.com/zero-day-ai/sdk/schema"
 	"github.com/zero-day-ai/sdk/tool"
 	"github.com/zero-day-ai/sdk/toolerr"
 	"github.com/zero-day-ai/sdk/types"
+	"google.golang.org/protobuf/proto"
 )
 
 const (
@@ -24,98 +25,90 @@ const (
 	BinaryName      = "nmap"
 )
 
-// InputSchema returns the JSON schema for nmap tool input.
-func InputSchema() schema.JSON {
-	return schema.Object(map[string]schema.JSON{
-		"target": schema.StringWithDesc("Target host, IP, or CIDR range to scan (required)"),
-		"ports": schema.JSON{
-			Type:        "string",
-			Description: "Port specification (e.g., '22,80,443' or '1-1000')",
-			Default:     "1-1000",
-		},
-		"scan_type": schema.JSON{
-			Type:        "string",
-			Description: "Scan type: connect (default, no root), syn (requires root), udp, ack, window, maimon, ping (host discovery only, no port scan)",
-			Enum:        []any{"connect", "syn", "udp", "ack", "window", "maimon", "ping"},
-			Default:     "connect",
-		},
-		"service_detection": schema.JSON{
-			Type:        "boolean",
-			Description: "Enable service/version detection",
-			Default:     true,
-		},
-		"os_detection": schema.JSON{
-			Type:        "boolean",
-			Description: "Enable OS detection",
-			Default:     false,
-		},
-		"scripts": schema.JSON{
-			Type:        "array",
-			Description: "NSE scripts to run (optional)",
-			Items:       &schema.JSON{Type: "string"},
-		},
-		"timing": schema.JSON{
-			Type:        "integer",
-			Description: "Timing template (0-5, higher is faster)",
-			Default:     3,
-		},
-		"timeout": schema.JSON{
-			Type:        "integer",
-			Description: "Execution timeout in seconds (optional)",
-		},
-	}, "target") // target is required
-}
 
 // ToolImpl implements the nmap tool
 type ToolImpl struct{}
 
 // NewTool creates a new nmap tool instance
 func NewTool() tool.Tool {
-	cfg := tool.NewConfig().
-		SetName(ToolName).
-		SetVersion(ToolVersion).
-		SetDescription(ToolDescription).
-		SetTags([]string{
-			"discovery",
-			"network",
-			"port-scan",
-			"T1046", // Network Service Discovery
-			"T1595", // Active Scanning
-		}).
-		SetInputSchema(InputSchema()).
-		SetExecuteFunc((&ToolImpl{}).Execute)
-
-	t, _ := tool.New(cfg)
-	return &toolWithHealth{Tool: t, impl: &ToolImpl{}}
+	return &ToolImpl{}
 }
 
-// toolWithHealth wraps the tool to add custom health checks
-type toolWithHealth struct {
-	tool.Tool
-	impl *ToolImpl
+
+// Name returns the tool name
+func (t *ToolImpl) Name() string {
+	return ToolName
 }
 
-func (t *toolWithHealth) Health(ctx context.Context) types.HealthStatus {
-	return t.impl.Health(ctx)
+// Version returns the tool version
+func (t *ToolImpl) Version() string {
+	return ToolVersion
 }
 
-// Execute runs the nmap tool with the provided input
-func (t *ToolImpl) Execute(ctx context.Context, input map[string]any) (map[string]any, error) {
+// Description returns the tool description
+func (t *ToolImpl) Description() string {
+	return ToolDescription
+}
+
+// Tags returns the tool tags
+func (t *ToolImpl) Tags() []string {
+	return []string{
+		"discovery",
+		"network",
+		"port-scan",
+		"T1046", // Network Service Discovery
+		"T1595", // Active Scanning
+	}
+}
+
+// InputMessageType returns the proto message type for input
+func (t *ToolImpl) InputMessageType() string {
+	return "gibson.tools.NmapRequest"
+}
+
+// OutputMessageType returns the proto message type for output
+func (t *ToolImpl) OutputMessageType() string {
+	return "gibson.tools.NmapResponse"
+}
+
+// ExecuteProto runs the nmap tool with proto message input
+func (t *ToolImpl) ExecuteProto(ctx context.Context, input proto.Message) (proto.Message, error) {
 	startTime := time.Now()
 
-	// Extract input parameters
-	target := sdkinput.GetString(input, "target", "")
-	if target == "" {
-		return nil, fmt.Errorf("target is required")
+	// Type assert input to NmapRequest
+	req, ok := input.(*toolspb.NmapRequest)
+	if !ok {
+		return nil, fmt.Errorf("invalid input type: expected *toolspb.NmapRequest, got %T", input)
 	}
 
-	ports := sdkinput.GetString(input, "ports", "1-1000")
-	scanType := sdkinput.GetString(input, "scan_type", "connect")
-	serviceDetection := sdkinput.GetBool(input, "service_detection", true)
-	osDetection := sdkinput.GetBool(input, "os_detection", false)
-	scripts := sdkinput.GetStringSlice(input, "scripts")
-	timing := sdkinput.GetInt(input, "timing", 3)
-	timeout := sdkinput.GetTimeout(input, "timeout", sdkinput.DefaultTimeout())
+	// Validate required fields
+	if len(req.Targets) == 0 {
+		return nil, fmt.Errorf("at least one target is required")
+	}
+
+	// Use first target for now (nmap can handle multiple targets, but our logic uses single target)
+	target := req.Targets[0]
+
+	// Extract parameters with defaults
+	ports := req.Ports
+	if ports == "" {
+		ports = "1-1000"
+	}
+
+	// Convert proto scan type to string
+	scanType := convertScanType(req.ScanType)
+	serviceDetection := req.ServiceDetection
+	osDetection := req.OsDetection
+	scripts := req.Scripts
+
+	// Convert proto timing template to integer (0-5)
+	timing := convertTimingTemplate(req.Timing)
+
+	// Determine timeout from request or use default
+	timeout := sdkinput.DefaultTimeout()
+	if req.HostTimeout > 0 {
+		timeout = time.Duration(req.HostTimeout) * time.Second
+	}
 
 	// Build nmap command arguments
 	args := buildArgs(target, ports, scanType, serviceDetection, osDetection, scripts, timing)
@@ -143,21 +136,11 @@ func (t *ToolImpl) Execute(ctx context.Context, input map[string]any) (map[strin
 			WithClass(toolerr.ErrorClassSemantic)
 	}
 
-	// Convert DiscoveryResult to map for tool output
-	// Include metadata about the scan
-	scanTime := int(time.Since(startTime).Milliseconds())
-	output := map[string]any{
-		"discovery_result": discoveryResult,
-		"metadata": map[string]any{
-			"target":       target,
-			"scan_time_ms": scanTime,
-			"total_hosts":  len(discoveryResult.Hosts),
-			"total_ports":  len(discoveryResult.Ports),
-			"total_services": len(discoveryResult.Services),
-		},
-	}
+	// Convert discovery result to NmapResponse
+	scanDuration := time.Since(startTime).Seconds()
+	response := convertToProtoResponse(discoveryResult, scanDuration, startTime)
 
-	return output, nil
+	return response, nil
 }
 
 // Health checks if the nmap binary is available
@@ -379,6 +362,120 @@ func parseOutput(data []byte) (*domain.DiscoveryResult, error) {
 	}
 
 	return result, nil
+}
+
+// convertScanType converts proto ScanType enum to nmap string
+func convertScanType(scanType toolspb.ScanType) string {
+	switch scanType {
+	case toolspb.ScanType_SCAN_TYPE_SYN:
+		return "syn"
+	case toolspb.ScanType_SCAN_TYPE_CONNECT:
+		return "connect"
+	case toolspb.ScanType_SCAN_TYPE_UDP:
+		return "udp"
+	case toolspb.ScanType_SCAN_TYPE_ACK:
+		return "ack"
+	case toolspb.ScanType_SCAN_TYPE_WINDOW:
+		return "window"
+	case toolspb.ScanType_SCAN_TYPE_MAIMON:
+		return "maimon"
+	case toolspb.ScanType_SCAN_TYPE_PING:
+		return "ping"
+	case toolspb.ScanType_SCAN_TYPE_UNSPECIFIED:
+		return "connect"
+	default:
+		return "connect"
+	}
+}
+
+// convertTimingTemplate converts proto TimingTemplate enum to integer (0-5)
+func convertTimingTemplate(timing toolspb.TimingTemplate) int {
+	switch timing {
+	case toolspb.TimingTemplate_TIMING_TEMPLATE_PARANOID:
+		return 0
+	case toolspb.TimingTemplate_TIMING_TEMPLATE_SNEAKY:
+		return 1
+	case toolspb.TimingTemplate_TIMING_TEMPLATE_POLITE:
+		return 2
+	case toolspb.TimingTemplate_TIMING_TEMPLATE_NORMAL:
+		return 3
+	case toolspb.TimingTemplate_TIMING_TEMPLATE_AGGRESSIVE:
+		return 4
+	case toolspb.TimingTemplate_TIMING_TEMPLATE_INSANE:
+		return 5
+	case toolspb.TimingTemplate_TIMING_TEMPLATE_UNSPECIFIED:
+		return 3
+	default:
+		return 3
+	}
+}
+
+// convertToProtoResponse converts DiscoveryResult to NmapResponse
+func convertToProtoResponse(discoveryResult *domain.DiscoveryResult, scanDuration float64, startTime time.Time) *toolspb.NmapResponse {
+	response := &toolspb.NmapResponse{
+		TotalHosts:   int32(len(discoveryResult.Hosts)),
+		ScanDuration: scanDuration,
+		StartTime:    startTime.Unix(),
+		EndTime:      time.Now().Unix(),
+	}
+
+	// Count hosts that are up
+	hostsUp := int32(0)
+	for _, host := range discoveryResult.Hosts {
+		if host.State == "up" {
+			hostsUp++
+		}
+	}
+	response.HostsUp = hostsUp
+	response.HostsDown = response.TotalHosts - hostsUp
+
+	// Convert domain hosts to proto hosts
+	for _, domainHost := range discoveryResult.Hosts {
+		protoHost := &toolspb.NmapHost{
+			Ip:       domainHost.IP,
+			Hostname: domainHost.Hostname,
+			State:    domainHost.State,
+		}
+
+		// Add OS information if available
+		if domainHost.OS != "" {
+			protoHost.OsMatches = []*toolspb.OSMatch{
+				{
+					Name:     domainHost.OS,
+					Accuracy: 100, // Assuming high accuracy for simplicity
+				},
+			}
+		}
+
+		// Find and add ports for this host
+		for _, domainPort := range discoveryResult.Ports {
+			if domainPort.HostID == domainHost.IP {
+				protoPort := &toolspb.NmapPort{
+					Number:   int32(domainPort.Number),
+					Protocol: domainPort.Protocol,
+					State:    domainPort.State,
+				}
+
+				// Find service for this port
+				portID := fmt.Sprintf("%s:%d:%s", domainHost.IP, domainPort.Number, domainPort.Protocol)
+				for _, domainService := range discoveryResult.Services {
+					if domainService.PortID == portID {
+						protoPort.Service = &toolspb.NmapService{
+							Name:    domainService.Name,
+							Version: domainService.Version,
+						}
+						break
+					}
+				}
+
+				protoHost.Ports = append(protoHost.Ports, protoPort)
+			}
+		}
+
+		response.Hosts = append(response.Hosts, protoHost)
+	}
+
+	return response
 }
 
 // classifyExecutionError determines the error class based on the underlying error

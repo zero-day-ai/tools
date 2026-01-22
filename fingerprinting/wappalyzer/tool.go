@@ -4,15 +4,15 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"net/url"
 	"time"
 
-	sdkinput "github.com/zero-day-ai/sdk/input"
-	"github.com/zero-day-ai/sdk/toolerr"
+	"github.com/zero-day-ai/sdk/api/gen/toolspb"
 	"github.com/zero-day-ai/sdk/exec"
 	"github.com/zero-day-ai/sdk/health"
 	"github.com/zero-day-ai/sdk/tool"
+	"github.com/zero-day-ai/sdk/toolerr"
 	"github.com/zero-day-ai/sdk/types"
+	"google.golang.org/protobuf/proto"
 )
 
 const (
@@ -27,6 +27,7 @@ type ToolImpl struct{}
 
 // NewTool creates a new wappalyzer tool instance
 func NewTool() tool.Tool {
+	impl := &ToolImpl{}
 	cfg := tool.NewConfig().
 		SetName(ToolName).
 		SetVersion(ToolVersion).
@@ -38,12 +39,12 @@ func NewTool() tool.Tool {
 			"T1595", // Active Scanning
 			"T1594", // Search Victim-Owned Websites
 		}).
-		SetInputSchema(InputSchema()).
-		SetOutputSchema(OutputSchema()).
-		SetExecuteFunc((&ToolImpl{}).Execute)
+		SetInputMessageType(impl.InputMessageType()).
+		SetOutputMessageType(impl.OutputMessageType()).
+		SetExecuteProtoFunc(impl.ExecuteProto)
 
 	t, _ := tool.New(cfg)
-	return &toolWithHealth{Tool: t, impl: &ToolImpl{}}
+	return &toolWithHealth{Tool: t, impl: impl}
 }
 
 // toolWithHealth wraps the tool to add custom health checks
@@ -56,24 +57,43 @@ func (t *toolWithHealth) Health(ctx context.Context) types.HealthStatus {
 	return t.impl.Health(ctx)
 }
 
-// Execute runs the wappalyzer tool with the provided input
-func (t *ToolImpl) Execute(ctx context.Context, input map[string]any) (map[string]any, error) {
+// InputMessageType returns the protobuf message type for input
+func (t *ToolImpl) InputMessageType() string {
+	return "gibson.tools.WappalyzerRequest"
+}
+
+// OutputMessageType returns the protobuf message type for output
+func (t *ToolImpl) OutputMessageType() string {
+	return "gibson.tools.WappalyzerResponse"
+}
+
+// ExecuteProto runs the wappalyzer tool with the provided proto input
+func (t *ToolImpl) ExecuteProto(ctx context.Context, input proto.Message) (proto.Message, error) {
 	startTime := time.Now()
 
-	// Extract input parameters
-	targets := sdkinput.GetStringSlice(input, "targets")
-	if len(targets) == 0 {
-		return nil, fmt.Errorf("targets is required")
+	// Type assert to WappalyzerRequest
+	req, ok := input.(*toolspb.WappalyzerRequest)
+	if !ok {
+		return nil, toolerr.New(ToolName, "execute", toolerr.ErrCodeInvalidInput, "input must be *toolspb.WappalyzerRequest")
 	}
 
-	timeout := sdkinput.GetTimeout(input, "timeout", sdkinput.DefaultTimeout())
+	// Validate required fields
+	if len(req.Targets) == 0 {
+		return nil, toolerr.New(ToolName, "validate", toolerr.ErrCodeInvalidInput, "targets is required")
+	}
 
 	// Build webanalyze command arguments
 	args := []string{"-output", "json"}
 
 	// Add all targets
-	for _, target := range targets {
+	for _, target := range req.Targets {
 		args = append(args, "-host", target)
+	}
+
+	// Determine timeout
+	timeout := time.Duration(60) * time.Second // default
+	if req.Timeout > 0 {
+		timeout = time.Duration(req.Timeout) * time.Second
 	}
 
 	// Execute webanalyze command
@@ -87,16 +107,13 @@ func (t *ToolImpl) Execute(ctx context.Context, input map[string]any) (map[strin
 		return nil, toolerr.New(ToolName, "execute", toolerr.ErrCodeExecutionFailed, err.Error()).WithCause(err)
 	}
 
-	// Parse webanalyze JSON output
-	output, err := parseOutput(result.Stdout)
+	// Parse webanalyze JSON output into proto response
+	response, err := parseOutputProto(result.Stdout, time.Since(startTime))
 	if err != nil {
 		return nil, toolerr.New(ToolName, "parse", toolerr.ErrCodeParseError, err.Error()).WithCause(err)
 	}
 
-	// Add scan time
-	output["scan_time_ms"] = int(time.Since(startTime).Milliseconds())
-
-	return output, nil
+	return response, nil
 }
 
 // Health checks if the webanalyze binary is available
@@ -118,45 +135,47 @@ type WebanalyzeOutput struct {
 	Apps     []WebanalyzeApp `json:"matches"`
 }
 
-// parseOutput parses the JSON output from webanalyze
-func parseOutput(data []byte) (map[string]any, error) {
+// parseOutputProto parses the JSON output from webanalyze into proto response
+func parseOutputProto(data []byte, duration time.Duration) (*toolspb.WappalyzerResponse, error) {
 	var entries []WebanalyzeOutput
 	if err := json.Unmarshal(data, &entries); err != nil {
 		return nil, fmt.Errorf("failed to parse webanalyze output: %w", err)
 	}
 
-	results := []map[string]any{}
+	results := []*toolspb.WappalyzerResult{}
 
 	for _, entry := range entries {
-		// Extract host from URL
-		host := entry.Hostname
-		parsedURL, err := url.Parse(entry.Hostname)
-		if err == nil {
-			host = parsedURL.Hostname()
-		}
-
 		// Convert technologies
-		technologies := []map[string]any{}
+		technologies := []*toolspb.DetectedTechnology{}
 		for _, app := range entry.Apps {
-			technologies = append(technologies, map[string]any{
-				"name":       app.Name,
-				"version":    app.Version,
-				"categories": app.Categories,
-				"confidence": app.Confidence,
+			// Convert categories
+			categories := []*toolspb.TechnologyCategory{}
+			for _, catName := range app.Categories {
+				categories = append(categories, &toolspb.TechnologyCategory{
+					Name: catName,
+				})
+			}
+
+			technologies = append(technologies, &toolspb.DetectedTechnology{
+				Name:       app.Name,
+				Version:    app.Version,
+				Categories: categories,
+				Confidence: int32(app.Confidence),
 			})
 		}
 
-		result := map[string]any{
-			"url":          entry.Hostname,
-			"host":         host,
-			"technologies": technologies,
+		result := &toolspb.WappalyzerResult{
+			Url:               entry.Hostname,
+			Technologies:      technologies,
+			TotalTechnologies: int32(len(technologies)),
 		}
 
 		results = append(results, result)
 	}
 
-	return map[string]any{
-		"results":       results,
-		"total_scanned": len(results),
+	return &toolspb.WappalyzerResponse{
+		Results:      results,
+		TotalTargets: int32(len(results)),
+		Duration:     duration.Seconds(),
 	}, nil
 }

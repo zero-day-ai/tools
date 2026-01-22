@@ -8,12 +8,13 @@ import (
 	"strings"
 	"time"
 
-	sdkinput "github.com/zero-day-ai/sdk/input"
-	"github.com/zero-day-ai/sdk/toolerr"
+	"github.com/zero-day-ai/sdk/api/gen/toolspb"
 	"github.com/zero-day-ai/sdk/exec"
 	"github.com/zero-day-ai/sdk/health"
 	"github.com/zero-day-ai/sdk/tool"
+	"github.com/zero-day-ai/sdk/toolerr"
 	"github.com/zero-day-ai/sdk/types"
+	"google.golang.org/protobuf/proto"
 )
 
 const (
@@ -38,16 +39,13 @@ func NewTool() tool.Tool {
 			"scanner",
 			"T1595", // Active Scanning
 			"T1190", // Exploit Public-Facing Application
-		}).
-		SetInputSchema(InputSchema()).
-		SetOutputSchema(OutputSchema()).
-		SetExecuteFunc((&ToolImpl{}).Execute)
+		})
 
 	t, _ := tool.New(cfg)
 	return &toolWithHealth{Tool: t, impl: &ToolImpl{}}
 }
 
-// toolWithHealth wraps the tool to add custom health checks
+// toolWithHealth wraps the tool to add custom health checks and proto execution
 type toolWithHealth struct {
 	tool.Tool
 	impl *ToolImpl
@@ -57,21 +55,50 @@ func (t *toolWithHealth) Health(ctx context.Context) types.HealthStatus {
 	return t.impl.Health(ctx)
 }
 
-// Execute runs the nuclei tool with the provided input
-func (t *ToolImpl) Execute(ctx context.Context, input map[string]any) (map[string]any, error) {
+func (t *toolWithHealth) InputMessageType() string {
+	return "tools.v1.NucleiRequest"
+}
+
+func (t *toolWithHealth) OutputMessageType() string {
+	return "tools.v1.NucleiResponse"
+}
+
+func (t *toolWithHealth) ExecuteProto(ctx context.Context, input proto.Message) (proto.Message, error) {
+	return t.impl.ExecuteProto(ctx, input)
+}
+
+// ExecuteProto runs the nuclei tool with the provided proto input
+func (t *ToolImpl) ExecuteProto(ctx context.Context, input proto.Message) (proto.Message, error) {
 	startTime := time.Now()
 
-	// Extract input parameters
-	target := sdkinput.GetString(input, "target", "")
-	if target == "" {
-		return nil, fmt.Errorf("target is required")
+	// Type assert input to NucleiRequest
+	req, ok := input.(*toolspb.NucleiRequest)
+	if !ok {
+		return nil, fmt.Errorf("expected *toolspb.NucleiRequest, got %T", input)
 	}
 
-	templates := sdkinput.GetStringSlice(input, "templates")
-	severity := sdkinput.GetStringSlice(input, "severity")
-	tags := sdkinput.GetStringSlice(input, "tags")
-	timeout := sdkinput.GetTimeout(input, "timeout", sdkinput.DefaultTimeout())
-	rateLimit := sdkinput.GetInt(input, "rate_limit", 150)
+	// Validate input - need at least one target
+	if len(req.Targets) == 0 {
+		return nil, fmt.Errorf("targets is required")
+	}
+
+	// For now, use the first target (matching old Execute behavior with single target)
+	target := req.Targets[0]
+
+	// Extract parameters from proto
+	templates := req.Templates
+	severity := req.Severity
+	tags := req.Tags
+	rateLimit := int(req.RateLimit)
+	if rateLimit == 0 {
+		rateLimit = 150 // Default rate limit
+	}
+
+	// Calculate timeout
+	timeout := time.Duration(req.Timeout) * time.Second
+	if timeout == 0 {
+		timeout = 5 * time.Minute // Default timeout
+	}
 
 	// Build nuclei command arguments
 	args := buildArgs(target, templates, severity, tags, rateLimit)
@@ -87,16 +114,16 @@ func (t *ToolImpl) Execute(ctx context.Context, input map[string]any) (map[strin
 		return nil, toolerr.New(ToolName, "execute", toolerr.ErrCodeExecutionFailed, err.Error()).WithCause(err)
 	}
 
-	// Parse nuclei JSON output
-	output, err := parseOutput(result.Stdout, target)
+	// Parse nuclei JSON output to proto response
+	response, err := parseOutputProto(result.Stdout, target)
 	if err != nil {
 		return nil, toolerr.New(ToolName, "parse", toolerr.ErrCodeParseError, err.Error()).WithCause(err)
 	}
 
-	// Add scan time
-	output["scan_time_ms"] = int(time.Since(startTime).Milliseconds())
+	// Add scan duration
+	response.Duration = time.Since(startTime).Seconds()
 
-	return output, nil
+	return response, nil
 }
 
 // Health checks if the nuclei binary is available
@@ -155,11 +182,11 @@ type Classification struct {
 	CVSSMetrics string   `json:"cvss-metrics,omitempty"`
 }
 
-// parseOutput parses the JSON output from nuclei
-func parseOutput(data []byte, target string) (map[string]any, error) {
+// parseOutputProto parses the JSON output from nuclei into proto response
+func parseOutputProto(data []byte, target string) (*toolspb.NucleiResponse, error) {
 	lines := strings.Split(string(data), "\n")
 
-	findings := []map[string]any{}
+	results := []*toolspb.TemplateMatch{}
 
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
@@ -172,75 +199,55 @@ func parseOutput(data []byte, target string) (map[string]any, error) {
 			continue
 		}
 
-		// Parse matched_at URL to extract host, port, and scheme for cross-tool relationships
-		parsedURL, err := url.Parse(entry.MatchedAt)
+		// Parse matched_at URL to extract host
+		parsedURL, _ := url.Parse(entry.MatchedAt)
 		host := ""
-		port := 0
-		scheme := ""
-		if err == nil {
-			scheme = parsedURL.Scheme
+		if parsedURL != nil {
 			host = parsedURL.Hostname()
+		}
 
-			// Extract port (use default if not specified)
-			portStr := parsedURL.Port()
-			if portStr != "" {
-				fmt.Sscanf(portStr, "%d", &port)
-			} else {
-				// Default ports
-				if scheme == "https" {
-					port = 443
-				} else if scheme == "http" {
-					port = 80
-				}
+		// Build template info
+		templateInfo := &toolspb.TemplateInfo{
+			Name:        entry.Info.Name,
+			Severity:    entry.Info.Severity,
+			Description: entry.Info.Description,
+			Remediation: entry.Info.Remediation,
+			Reference:   entry.Info.Reference,
+			Tags:        []string{}, // Tags not in nuclei JSON output
+		}
+
+		// Add classification if present
+		if len(entry.Info.Classification.CVEID) > 0 || len(entry.Info.Classification.CWEID) > 0 ||
+			entry.Info.Classification.CVSSScore > 0 {
+			templateInfo.Classification = &toolspb.TemplateClassification{
+				CveId:       entry.Info.Classification.CVEID,
+				CweId:       entry.Info.Classification.CWEID,
+				CvssScore:   entry.Info.Classification.CVSSScore,
+				CvssMetrics: entry.Info.Classification.CVSSMetrics,
 			}
 		}
 
-		finding := map[string]any{
-			"template_id":   entry.TemplateID,
-			"template_name": entry.Info.Name,
-			"severity":      entry.Info.Severity,
-			"type":          entry.Type,
-			"matched_at":    entry.MatchedAt,
-			"extracted":     entry.Extracted,
-			"host":          host,
-			"port":          port,
-			"scheme":        scheme,
+		// Build template match
+		match := &toolspb.TemplateMatch{
+			TemplateId:       entry.TemplateID,
+			TemplateName:     entry.Info.Name,
+			TemplatePath:     "", // Not available in nuclei JSON output
+			Info:             templateInfo,
+			MatcherName:      entry.MatcherName,
+			Type:             entry.Type,
+			Host:             host,
+			Url:              entry.MatchedAt, // Use matched_at as URL
+			MatchedAt:        entry.MatchedAt,
+			ExtractedResults: entry.Extracted,
+			Timestamp:        time.Now().Unix(),
+			Metadata:         map[string]string{},
 		}
 
-		// Add optional fields if present
-		if entry.MatcherName != "" {
-			finding["matcher_name"] = entry.MatcherName
-		}
-		if entry.Info.Description != "" {
-			finding["description"] = entry.Info.Description
-		}
-		if entry.Info.Remediation != "" {
-			finding["remediation"] = entry.Info.Remediation
-		}
-		if len(entry.Info.Reference) > 0 {
-			finding["references"] = entry.Info.Reference
-		}
-
-		// Add classification data if present
-		if len(entry.Info.Classification.CVEID) > 0 {
-			finding["cve_id"] = entry.Info.Classification.CVEID
-		}
-		if len(entry.Info.Classification.CWEID) > 0 {
-			finding["cwe_id"] = entry.Info.Classification.CWEID
-		}
-		if entry.Info.Classification.CVSSScore > 0 {
-			finding["cvss_score"] = entry.Info.Classification.CVSSScore
-		}
-		if entry.Info.Classification.CVSSMetrics != "" {
-			finding["cvss_metrics"] = entry.Info.Classification.CVSSMetrics
-		}
-
-		findings = append(findings, finding)
+		results = append(results, match)
 	}
 
-	return map[string]any{
-		"target":         target,
-		"findings":       findings,
-		"total_findings": len(findings),
+	return &toolspb.NucleiResponse{
+		Results:      results,
+		TotalMatches: int32(len(results)),
 	}, nil
 }

@@ -8,12 +8,13 @@ import (
 	"strings"
 	"time"
 
-	sdkinput "github.com/zero-day-ai/sdk/input"
-	"github.com/zero-day-ai/sdk/toolerr"
+	"github.com/zero-day-ai/sdk/api/gen/toolspb"
 	"github.com/zero-day-ai/sdk/exec"
 	"github.com/zero-day-ai/sdk/health"
 	"github.com/zero-day-ai/sdk/tool"
+	"github.com/zero-day-ai/sdk/toolerr"
 	"github.com/zero-day-ai/sdk/types"
+	"google.golang.org/protobuf/proto"
 )
 
 const (
@@ -28,6 +29,7 @@ type ToolImpl struct{}
 
 // NewTool creates a new whatweb tool instance
 func NewTool() tool.Tool {
+	impl := &ToolImpl{}
 	cfg := tool.NewConfig().
 		SetName(ToolName).
 		SetVersion(ToolVersion).
@@ -39,12 +41,12 @@ func NewTool() tool.Tool {
 			"T1595", // Active Scanning
 			"T1594", // Search Victim-Owned Websites
 		}).
-		SetInputSchema(InputSchema()).
-		SetOutputSchema(OutputSchema()).
-		SetExecuteFunc((&ToolImpl{}).Execute)
+		SetInputMessageType(impl.InputMessageType()).
+		SetOutputMessageType(impl.OutputMessageType()).
+		SetExecuteProtoFunc(impl.ExecuteProto)
 
 	t, _ := tool.New(cfg)
-	return &toolWithHealth{Tool: t, impl: &ToolImpl{}}
+	return &toolWithHealth{Tool: t, impl: impl}
 }
 
 // toolWithHealth wraps the tool to add custom health checks
@@ -57,29 +59,58 @@ func (t *toolWithHealth) Health(ctx context.Context) types.HealthStatus {
 	return t.impl.Health(ctx)
 }
 
-// Execute runs the whatweb tool with the provided input
-func (t *ToolImpl) Execute(ctx context.Context, input map[string]any) (map[string]any, error) {
+// InputMessageType returns the proto message type for input
+func (t *ToolImpl) InputMessageType() string {
+	return "tools.v1.WhatwebRequest"
+}
+
+// OutputMessageType returns the proto message type for output
+func (t *ToolImpl) OutputMessageType() string {
+	return "tools.v1.WhatwebResponse"
+}
+
+// ExecuteProto runs the whatweb tool with proto message input
+func (t *ToolImpl) ExecuteProto(ctx context.Context, input proto.Message) (proto.Message, error) {
 	startTime := time.Now()
 
-	// Extract input parameters
-	targets := sdkinput.GetStringSlice(input, "targets")
-	if len(targets) == 0 {
-		return nil, fmt.Errorf("targets is required")
+	// Type assert input to WhatwebRequest
+	req, ok := input.(*toolspb.WhatwebRequest)
+	if !ok {
+		return nil, toolerr.New(ToolName, "execute", toolerr.ErrCodeInvalidInput,
+			fmt.Sprintf("expected *toolspb.WhatwebRequest, got %T", input))
 	}
 
-	timeout := sdkinput.GetTimeout(input, "timeout", sdkinput.DefaultTimeout())
-	aggression := sdkinput.GetInt(input, "aggression", 1)
+	// Validate required fields
+	if len(req.Targets) == 0 {
+		return nil, toolerr.New(ToolName, "execute", toolerr.ErrCodeInvalidInput, "targets is required")
+	}
+
+	// Set default aggression level if not specified
+	aggression := req.Aggression
+	if aggression == 0 {
+		aggression = 1
+	}
 
 	// Build whatweb command arguments
 	args := []string{
 		"--log-json=-", // Output JSON to stdout
 		fmt.Sprintf("-a%d", aggression),
 		"--color=never",
-		"--no-errors",
+	}
+
+	// Add no-errors flag if requested
+	if req.NoErrors {
+		args = append(args, "--no-errors")
 	}
 
 	// Add all targets
-	args = append(args, targets...)
+	args = append(args, req.Targets...)
+
+	// Calculate timeout (default to 120 seconds if not specified)
+	timeout := time.Duration(req.Timeout) * time.Second
+	if timeout == 0 {
+		timeout = 120 * time.Second
+	}
 
 	// Execute whatweb command
 	result, err := exec.Run(ctx, exec.Config{
@@ -93,15 +124,15 @@ func (t *ToolImpl) Execute(ctx context.Context, input map[string]any) (map[strin
 	}
 
 	// Parse whatweb JSON output
-	output, err := parseOutput(result.Stdout)
+	response, err := parseOutputProto(result.Stdout)
 	if err != nil {
 		return nil, toolerr.New(ToolName, "parse", toolerr.ErrCodeParseError, err.Error()).WithCause(err)
 	}
 
-	// Add scan time
-	output["scan_time_ms"] = int(time.Since(startTime).Milliseconds())
+	// Set duration
+	response.Duration = time.Since(startTime).Seconds()
 
-	return output, nil
+	return response, nil
 }
 
 // Health checks if the whatweb binary is available
@@ -126,10 +157,10 @@ type WhatWebOutput struct {
 	Plugins    []WhatWebPlugin `json:"plugins"`
 }
 
-// parseOutput parses the JSON output from whatweb
-func parseOutput(data []byte) (map[string]any, error) {
+// parseOutputProto parses the JSON output from whatweb and returns proto response
+func parseOutputProto(data []byte) (*toolspb.WhatwebResponse, error) {
 	lines := strings.Split(string(data), "\n")
-	results := []map[string]any{}
+	results := []*toolspb.WhatwebResult{}
 
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
@@ -142,42 +173,39 @@ func parseOutput(data []byte) (map[string]any, error) {
 			continue
 		}
 
-		// Extract host and IP from target URL
-		host := ""
+		// Extract IP from target URL
 		ip := ""
 		parsedURL, err := url.Parse(entry.Target)
 		if err == nil {
-			host = parsedURL.Hostname()
 			// whatweb sometimes includes IP in brackets after hostname
 			// but we'll use the hostname for now
+			ip = parsedURL.Hostname()
 		}
 
-		// Convert plugins to technology format
-		plugins := []map[string]any{}
+		// Convert plugins to proto format
+		plugins := []*toolspb.WhatwebPlugin{}
 		for _, plugin := range entry.Plugins {
-			pluginData := map[string]any{
-				"name":       plugin.Name,
-				"version":    plugin.Version,
-				"categories": plugin.Categories,
-				"string":     plugin.String,
+			protoPlugin := &toolspb.WhatwebPlugin{
+				Name:       plugin.Name,
+				Version:    plugin.Version,
+				String_:    plugin.String,
+				Categories: plugin.Categories,
 			}
-			plugins = append(plugins, pluginData)
+			plugins = append(plugins, protoPlugin)
 		}
 
-		result := map[string]any{
-			"target":      entry.Target,
-			"http_status": entry.HTTPStatus,
-			"request_url": entry.RequestURL,
-			"plugins":     plugins,
-			"ip":          ip,
-			"host":        host,
+		result := &toolspb.WhatwebResult{
+			Target:     entry.Target,
+			StatusCode: int32(entry.HTTPStatus),
+			Ip:         ip,
+			Plugins:    plugins,
 		}
 
 		results = append(results, result)
 	}
 
-	return map[string]any{
-		"results":       results,
-		"total_scanned": len(results),
+	return &toolspb.WhatwebResponse{
+		Results:      results,
+		TotalTargets: int32(len(results)),
 	}, nil
 }

@@ -8,12 +8,13 @@ import (
 	"strings"
 	"time"
 
-	sdkinput "github.com/zero-day-ai/sdk/input"
-	"github.com/zero-day-ai/sdk/toolerr"
+	"github.com/zero-day-ai/sdk/api/gen/toolspb"
 	"github.com/zero-day-ai/sdk/exec"
 	"github.com/zero-day-ai/sdk/health"
 	"github.com/zero-day-ai/sdk/tool"
+	"github.com/zero-day-ai/sdk/toolerr"
 	"github.com/zero-day-ai/sdk/types"
+	"google.golang.org/protobuf/proto"
 )
 
 const (
@@ -38,49 +39,83 @@ func NewTool() tool.Tool {
 			"probing",
 			"T1595", // Active Scanning
 			"T1592", // Gather Victim Host Information
-		}).
-		SetInputSchema(InputSchema()).
-		SetOutputSchema(OutputSchema()).
-		SetExecuteFunc((&ToolImpl{}).Execute)
+		})
 
 	t, _ := tool.New(cfg)
-	return &toolWithHealth{Tool: t, impl: &ToolImpl{}}
+	return &protoTool{Tool: t, impl: &ToolImpl{}}
 }
 
-// toolWithHealth wraps the tool to add custom health checks
-type toolWithHealth struct {
+// protoTool wraps the base tool to add proto execution and custom health checks
+type protoTool struct {
 	tool.Tool
 	impl *ToolImpl
 }
 
-func (t *toolWithHealth) Health(ctx context.Context) types.HealthStatus {
+func (t *protoTool) InputMessageType() string {
+	return "tools.v1.HttpxRequest"
+}
+
+func (t *protoTool) OutputMessageType() string {
+	return "tools.v1.HttpxResponse"
+}
+
+func (t *protoTool) ExecuteProto(ctx context.Context, input proto.Message) (proto.Message, error) {
+	req, ok := input.(*toolspb.HttpxRequest)
+	if !ok {
+		return nil, fmt.Errorf("expected *toolspb.HttpxRequest, got %T", input)
+	}
+
+	return t.impl.ExecuteProto(ctx, req)
+}
+
+func (t *protoTool) Health(ctx context.Context) types.HealthStatus {
 	return t.impl.Health(ctx)
 }
 
-// Execute runs the httpx tool with the provided input
-func (t *ToolImpl) Execute(ctx context.Context, input map[string]any) (map[string]any, error) {
+// ExecuteProto runs the httpx tool with the provided proto input
+func (t *ToolImpl) ExecuteProto(ctx context.Context, req *toolspb.HttpxRequest) (*toolspb.HttpxResponse, error) {
 	startTime := time.Now()
 
-	// Extract input parameters
-	targets := sdkinput.GetStringSlice(input, "targets")
-	if len(targets) == 0 {
+	// Validate input
+	if len(req.Targets) == 0 {
 		return nil, fmt.Errorf("targets is required")
 	}
 
-	timeout := sdkinput.GetTimeout(input, "timeout", sdkinput.DefaultTimeout())
-	followRedirects := sdkinput.GetBool(input, "follow_redirects", true)
-	statusCode := sdkinput.GetBool(input, "status_code", true)
-	title := sdkinput.GetBool(input, "title", true)
-	techDetect := sdkinput.GetBool(input, "tech_detect", false)
+	// Extract timeout (convert seconds to duration, default to 5 minutes)
+	timeout := time.Duration(300) * time.Second
+	if req.Timeout > 0 {
+		timeout = time.Duration(req.Timeout) * time.Second
+	}
 
 	// Build httpx command arguments
-	args := buildArgs(followRedirects, statusCode, title, techDetect)
+	// Note: The proto has more options than the current implementation uses
+	// We'll use the basic ones that match the current behavior
+	args := []string{
+		"-json",
+		"-include-response-header", // Include response headers in output
+		"-include-chain",           // Include redirect chain
+		"-tls-grab",                // Extract TLS certificate information
+		"-status-code",             // Display status code
+		"-title",                   // Display page title
+	}
+
+	// Follow redirects (default true if not specified)
+	if req.FollowRedirects {
+		args = append(args, "-follow-redirects")
+	} else {
+		args = append(args, "-no-follow-redirects")
+	}
+
+	// Tech detect
+	if req.TechDetect {
+		args = append(args, "-tech-detect")
+	}
 
 	// Execute httpx command with stdin input
 	result, err := exec.Run(ctx, exec.Config{
 		Command:   BinaryName,
 		Args:      args,
-		StdinData: []byte(strings.Join(targets, "\n")),
+		StdinData: []byte(strings.Join(req.Targets, "\n")),
 		Timeout:   timeout,
 	})
 
@@ -88,51 +123,21 @@ func (t *ToolImpl) Execute(ctx context.Context, input map[string]any) (map[strin
 		return nil, toolerr.New(ToolName, "execute", toolerr.ErrCodeExecutionFailed, err.Error()).WithCause(err)
 	}
 
-	// Parse httpx JSON output
-	output, err := parseOutput(result.Stdout)
+	// Parse httpx JSON output and convert to proto response
+	response, err := parseOutputToProto(result.Stdout)
 	if err != nil {
 		return nil, toolerr.New(ToolName, "parse", toolerr.ErrCodeParseError, err.Error()).WithCause(err)
 	}
 
-	// Add scan time
-	output["scan_time_ms"] = int(time.Since(startTime).Milliseconds())
+	// Add scan duration
+	response.Duration = time.Since(startTime).Seconds()
 
-	return output, nil
+	return response, nil
 }
 
 // Health checks if the httpx binary is available
 func (t *ToolImpl) Health(ctx context.Context) types.HealthStatus {
 	return health.BinaryCheck(BinaryName)
-}
-
-// buildArgs constructs the command-line arguments for httpx
-func buildArgs(followRedirects, statusCode, title, techDetect bool) []string {
-	args := []string{
-		"-json",
-		"-include-response-header", // Include response headers in output
-		"-include-chain",           // Include redirect chain
-		"-tls-grab",                // Extract TLS certificate information
-	}
-
-	if followRedirects {
-		args = append(args, "-follow-redirects")
-	} else {
-		args = append(args, "-no-follow-redirects")
-	}
-
-	if statusCode {
-		args = append(args, "-status-code")
-	}
-
-	if title {
-		args = append(args, "-title")
-	}
-
-	if techDetect {
-		args = append(args, "-tech-detect")
-	}
-
-	return args
 }
 
 // RedirectHop represents a single hop in a redirect chain
@@ -155,15 +160,115 @@ type TLSInfo struct {
 
 // HttpxOutput represents a single JSON line from httpx output
 type HttpxOutput struct {
-	URL             string              `json:"url"`
-	FinalURL        string              `json:"final_url,omitempty"`
-	StatusCode      int                 `json:"status_code"`
-	Title           string              `json:"title"`
-	ContentType     string              `json:"content_type"`
-	Technologies    []string            `json:"tech,omitempty"`
-	Header          map[string]string   `json:"header,omitempty"`
-	Chain           []map[string]any    `json:"chain,omitempty"`
-	TLS             *TLSInfo            `json:"tls,omitempty"`
+	URL          string            `json:"url"`
+	FinalURL     string            `json:"final_url,omitempty"`
+	StatusCode   int               `json:"status_code"`
+	Title        string            `json:"title"`
+	ContentType  string            `json:"content_type"`
+	Technologies []string          `json:"tech,omitempty"`
+	Header       map[string]string `json:"header,omitempty"`
+	Chain        []map[string]any  `json:"chain,omitempty"`
+	TLS          *TLSInfo          `json:"tls,omitempty"`
+}
+
+// parseOutputToProto parses the JSON output from httpx and converts it to proto response
+func parseOutputToProto(data []byte) (*toolspb.HttpxResponse, error) {
+	lines := strings.Split(string(data), "\n")
+
+	results := []*toolspb.HttpxResult{}
+	totalScanned := 0
+	totalSuccess := 0
+
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+
+		var entry HttpxOutput
+		if err := json.Unmarshal([]byte(line), &entry); err != nil {
+			continue
+		}
+
+		totalScanned++
+
+		// Parse URL to extract host, port, and scheme
+		parsedURL, err := url.Parse(entry.URL)
+		host := ""
+		port := int32(0)
+		scheme := ""
+		if err == nil {
+			scheme = parsedURL.Scheme
+			host = parsedURL.Hostname()
+
+			// Extract port (use default if not specified)
+			portStr := parsedURL.Port()
+			if portStr != "" {
+				var p int
+				fmt.Sscanf(portStr, "%d", &p)
+				port = int32(p)
+			} else {
+				// Default ports
+				if scheme == "https" {
+					port = 443
+				} else if scheme == "http" {
+					port = 80
+				}
+			}
+		}
+
+		// Convert technologies to proto format
+		var technologies []*toolspb.Technology
+		for _, tech := range entry.Technologies {
+			technologies = append(technologies, &toolspb.Technology{
+				Name: tech,
+			})
+		}
+
+		// Build proto result
+		result := &toolspb.HttpxResult{
+			Url:          entry.URL,
+			StatusCode:   int32(entry.StatusCode),
+			Title:        entry.Title,
+			ContentType:  entry.ContentType,
+			Technologies: technologies,
+			Headers:      entry.Header,
+			Host:         host,
+			Port:         port,
+			Scheme:       scheme,
+		}
+
+		// Extract server header
+		if entry.Header != nil {
+			if server, ok := entry.Header["server"]; ok {
+				result.Server = server
+			}
+		}
+
+		// Parse and add TLS certificate information
+		if entry.TLS != nil {
+			result.Tls = &toolspb.TLSInfo{
+				SubjectDn: entry.TLS.SubjectCN,
+				IssuerDn:  entry.TLS.IssuerCN,
+				NotBefore: entry.TLS.NotBefore,
+				NotAfter:  entry.TLS.NotAfter,
+				Sans:      entry.TLS.SubjectAN,
+			}
+		}
+
+		results = append(results, result)
+
+		if entry.StatusCode >= 200 && entry.StatusCode < 500 {
+			totalSuccess++
+		}
+	}
+
+	return &toolspb.HttpxResponse{
+		Results:      results,
+		TotalScanned: int32(totalScanned),
+		TotalSuccess: int32(totalSuccess),
+		TotalFailed:  int32(totalScanned - totalSuccess),
+	}, nil
 }
 
 // parseOutput parses the JSON output from httpx

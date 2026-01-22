@@ -7,12 +7,13 @@ import (
 	"strings"
 	"time"
 
-	sdkinput "github.com/zero-day-ai/sdk/input"
-	"github.com/zero-day-ai/sdk/toolerr"
+	"github.com/zero-day-ai/sdk/api/gen/toolspb"
 	"github.com/zero-day-ai/sdk/exec"
 	"github.com/zero-day-ai/sdk/health"
 	"github.com/zero-day-ai/sdk/tool"
+	"github.com/zero-day-ai/sdk/toolerr"
 	"github.com/zero-day-ai/sdk/types"
+	"google.golang.org/protobuf/proto"
 )
 
 const (
@@ -27,47 +28,66 @@ type ToolImpl struct{}
 
 // NewTool creates a new sslyze tool instance
 func NewTool() tool.Tool {
-	cfg := tool.NewConfig().
-		SetName(ToolName).
-		SetVersion(ToolVersion).
-		SetDescription(ToolDescription).
-		SetTags([]string{
-			"fingerprinting",
-			"ssl-tls",
-			"security-testing",
-			"vulnerability-detection",
-			"T1595", // Active Scanning
-			"T1071", // Application Layer Protocol
-		}).
-		SetInputSchema(InputSchema()).
-		SetOutputSchema(OutputSchema()).
-		SetExecuteFunc((&ToolImpl{}).Execute)
-
-	t, _ := tool.New(cfg)
-	return &toolWithHealth{Tool: t, impl: &ToolImpl{}}
+	return &ToolImpl{}
 }
 
-// toolWithHealth wraps the tool to add custom health checks
-type toolWithHealth struct {
-	tool.Tool
-	impl *ToolImpl
+// Name returns the tool name
+func (t *ToolImpl) Name() string {
+	return ToolName
 }
 
-func (t *toolWithHealth) Health(ctx context.Context) types.HealthStatus {
-	return t.impl.Health(ctx)
+// Version returns the tool version
+func (t *ToolImpl) Version() string {
+	return ToolVersion
 }
 
-// Execute runs the sslyze tool with the provided input
-func (t *ToolImpl) Execute(ctx context.Context, input map[string]any) (map[string]any, error) {
+// Description returns the tool description
+func (t *ToolImpl) Description() string {
+	return ToolDescription
+}
+
+// Tags returns the tool tags
+func (t *ToolImpl) Tags() []string {
+	return []string{
+		"fingerprinting",
+		"ssl-tls",
+		"security-testing",
+		"vulnerability-detection",
+		"T1595", // Active Scanning
+		"T1071", // Application Layer Protocol
+	}
+}
+
+// InputMessageType returns the fully qualified proto message type for input
+func (t *ToolImpl) InputMessageType() string {
+	return "gibson.tools.SslyzeRequest"
+}
+
+// OutputMessageType returns the fully qualified proto message type for output
+func (t *ToolImpl) OutputMessageType() string {
+	return "gibson.tools.SslyzeResponse"
+}
+
+// ExecuteProto runs the sslyze tool with the provided proto input
+func (t *ToolImpl) ExecuteProto(ctx context.Context, input proto.Message) (proto.Message, error) {
 	startTime := time.Now()
 
-	// Extract input parameters
-	targets := sdkinput.GetStringSlice(input, "targets")
-	if len(targets) == 0 {
+	// Type assert input to SslyzeRequest
+	req, ok := input.(*toolspb.SslyzeRequest)
+	if !ok {
+		return nil, fmt.Errorf("expected *toolspb.SslyzeRequest, got %T", input)
+	}
+
+	// Validate input
+	if len(req.Targets) == 0 {
 		return nil, fmt.Errorf("targets is required")
 	}
 
-	timeout := sdkinput.GetTimeout(input, "timeout", 5*time.Minute)
+	// Determine timeout
+	timeout := 5 * time.Minute
+	if req.Timeout > 0 {
+		timeout = time.Duration(req.Timeout) * time.Second
+	}
 
 	// Build sslyze command arguments
 	args := []string{
@@ -76,7 +96,7 @@ func (t *ToolImpl) Execute(ctx context.Context, input map[string]any) (map[strin
 	}
 
 	// Add all targets
-	args = append(args, targets...)
+	args = append(args, req.Targets...)
 
 	// Execute sslyze command
 	result, err := exec.Run(ctx, exec.Config{
@@ -90,15 +110,15 @@ func (t *ToolImpl) Execute(ctx context.Context, input map[string]any) (map[strin
 	}
 
 	// Parse sslyze JSON output
-	output, err := parseOutput(result.Stdout)
+	response, err := parseOutputProto(result.Stdout)
 	if err != nil {
 		return nil, toolerr.New(ToolName, "parse", toolerr.ErrCodeParseError, err.Error()).WithCause(err)
 	}
 
-	// Add scan time
-	output["scan_time_ms"] = int(time.Since(startTime).Milliseconds())
+	// Add scan duration
+	response.Duration = time.Since(startTime).Seconds()
 
-	return output, nil
+	return response, nil
 }
 
 // Health checks if the sslyze binary is available
@@ -133,22 +153,24 @@ type SSLyzeOutput struct {
 	ServerScanResults []SSLyzeScanResult `json:"server_scan_results"`
 }
 
-// parseOutput parses the JSON output from sslyze
-func parseOutput(data []byte) (map[string]any, error) {
+// parseOutputProto parses the JSON output from sslyze and returns proto response
+func parseOutputProto(data []byte) (*toolspb.SslyzeResponse, error) {
 	var output SSLyzeOutput
 	if err := json.Unmarshal(data, &output); err != nil {
 		return nil, fmt.Errorf("failed to parse sslyze output: %w", err)
 	}
 
-	results := []map[string]any{}
+	results := []*toolspb.SslyzeResult{}
 
 	for _, scanResult := range output.ServerScanResults {
 		target := fmt.Sprintf("%s:%d", scanResult.ServerLocation.Hostname, scanResult.ServerLocation.Port)
 
-		protocols := []map[string]any{}
-		ciphers := []map[string]any{}
-		vulnerabilities := []map[string]any{}
-		var certificate map[string]any
+		result := &toolspb.SslyzeResult{
+			Target:       target,
+			Ip:           scanResult.ServerLocation.IPAddress,
+			Port:         int32(scanResult.ServerLocation.Port),
+			CipherSuites: make(map[string]*toolspb.CipherSuiteList),
+		}
 
 		// Parse scan commands for protocol and cipher info
 		for cmdName, cmdResult := range scanResult.ScanCommands {
@@ -159,28 +181,36 @@ func parseOutput(data []byte) (map[string]any, error) {
 
 			switch {
 			case strings.Contains(cmdName, "ssl_") || strings.Contains(cmdName, "tls_"):
-				// Protocol check
+				// Protocol check and cipher suites
 				if accepted, ok := cmdData["accepted_cipher_suites"].([]any); ok && len(accepted) > 0 {
-					protocols = append(protocols, map[string]any{
-						"name":     strings.ToUpper(strings.Replace(cmdName, "_", " ", -1)),
-						"severity": "INFO",
-						"finding":  "supported",
-					})
+					protocolName := strings.ToUpper(strings.Replace(cmdName, "_", " ", -1))
+					cipherList := &toolspb.CipherSuiteList{
+						Protocol:        protocolName,
+						AcceptedCiphers: []*toolspb.CipherSuite{},
+					}
 
 					// Extract cipher suites
 					for _, cipher := range accepted {
 						if cipherMap, ok := cipher.(map[string]any); ok {
 							if cipherSuite, ok := cipherMap["cipher_suite"].(map[string]any); ok {
+								cs := &toolspb.CipherSuite{}
 								if name, ok := cipherSuite["name"].(string); ok {
-									ciphers = append(ciphers, map[string]any{
-										"name":     name,
-										"severity": "INFO",
-										"finding":  "supported",
-									})
+									cs.Name = name
 								}
+								if keyExchange, ok := cipherSuite["key_exchange"].(string); ok {
+									cs.KeyExchange = keyExchange
+								}
+								if auth, ok := cipherSuite["authentication"].(string); ok {
+									cs.Authentication = auth
+								}
+								if enc, ok := cipherSuite["encryption"].(string); ok {
+									cs.Encryption = enc
+								}
+								cipherList.AcceptedCiphers = append(cipherList.AcceptedCiphers, cs)
 							}
 						}
 					}
+					result.CipherSuites[protocolName] = cipherList
 				}
 			case cmdName == "certificate_info":
 				// Parse certificate information
@@ -188,104 +218,115 @@ func parseOutput(data []byte) (map[string]any, error) {
 					if firstDeploy, ok := certDeployments[0].(map[string]any); ok {
 						if receivedCertChain, ok := firstDeploy["received_certificate_chain"].([]any); ok && len(receivedCertChain) > 0 {
 							if cert, ok := receivedCertChain[0].(map[string]any); ok {
-								certificate = parseCertificateInfo(cert)
+								result.Certificate = parseCertificateInfoProto(cert)
 							}
 						}
 					}
 				}
-			case strings.Contains(cmdName, "heartbleed") || strings.Contains(cmdName, "robot") || strings.Contains(cmdName, "openssl"):
-				// Vulnerability checks
-				if vulnerable, ok := cmdData["is_vulnerable_to_"+cmdName].(bool); ok && vulnerable {
-					vulnerabilities = append(vulnerabilities, map[string]any{
-						"id":          cmdName,
-						"severity":    "HIGH",
-						"finding":     "vulnerable",
-						"cve":         "",
-						"description": fmt.Sprintf("Vulnerable to %s", cmdName),
-					})
+			case strings.Contains(cmdName, "heartbleed"):
+				// Heartbleed vulnerability check
+				if vulnerable, ok := cmdData["is_vulnerable_to_heartbleed"].(bool); ok {
+					result.Heartbleed = &toolspb.VulnerabilityScanResult{
+						Vulnerable: vulnerable,
+						Details:    fmt.Sprintf("Heartbleed vulnerability: %v", vulnerable),
+					}
+				}
+			case strings.Contains(cmdName, "robot"):
+				// ROBOT vulnerability check
+				if vulnerable, ok := cmdData["is_vulnerable_to_robot"].(bool); ok {
+					result.Robot = &toolspb.VulnerabilityScanResult{
+						Vulnerable: vulnerable,
+						Details:    fmt.Sprintf("ROBOT vulnerability: %v", vulnerable),
+					}
+				}
+			case strings.Contains(cmdName, "compression"):
+				// TLS compression check
+				if supported, ok := cmdData["compression_supported"].(bool); ok {
+					result.Compression = &toolspb.CompressionScanResult{
+						Supported: supported,
+					}
 				}
 			}
 		}
 
 		// Ensure certificate exists even if empty
-		if certificate == nil {
-			certificate = map[string]any{
-				"subject":    "",
-				"issuer":     "",
-				"not_before": "",
-				"not_after":  "",
-				"sans":       []string{},
-				"expired":    false,
-			}
-		}
-
-		result := map[string]any{
-			"target":          target,
-			"ip":              scanResult.ServerLocation.IPAddress,
-			"port":            scanResult.ServerLocation.Port,
-			"protocols":       protocols,
-			"ciphers":         ciphers,
-			"certificate":     certificate,
-			"vulnerabilities": vulnerabilities,
+		if result.Certificate == nil {
+			result.Certificate = &toolspb.SslyzeCertificateInfo{}
 		}
 
 		results = append(results, result)
 	}
 
-	return map[string]any{
-		"results":       results,
-		"total_scanned": len(results),
+	return &toolspb.SslyzeResponse{
+		Results:      results,
+		TotalTargets: int32(len(results)),
 	}, nil
 }
 
-// parseCertificateInfo extracts certificate details
-func parseCertificateInfo(cert map[string]any) map[string]any {
-	certificate := map[string]any{
-		"subject":    "",
-		"issuer":     "",
-		"not_before": "",
-		"not_after":  "",
-		"sans":       []string{},
-		"expired":    false,
+// parseCertificateInfoProto extracts certificate details into proto message
+func parseCertificateInfoProto(cert map[string]any) *toolspb.SslyzeCertificateInfo {
+	certificate := &toolspb.SslyzeCertificateInfo{
+		Sans: []string{},
 	}
 
 	// Extract subject
 	if subject, ok := cert["subject"].(map[string]any); ok {
 		if cn, ok := subject["commonName"].(string); ok {
-			certificate["subject"] = cn
+			certificate.SubjectDn = cn
 		}
 	}
 
 	// Extract issuer
 	if issuer, ok := cert["issuer"].(map[string]any); ok {
 		if cn, ok := issuer["commonName"].(string); ok {
-			certificate["issuer"] = cn
+			certificate.IssuerDn = cn
 		}
 	}
 
 	// Extract validity dates
 	if notBefore, ok := cert["notBefore"].(string); ok {
-		certificate["not_before"] = notBefore
+		certificate.NotBefore = notBefore
 	}
 	if notAfter, ok := cert["notAfter"].(string); ok {
-		certificate["not_after"] = notAfter
+		certificate.NotAfter = notAfter
 
 		// Check if expired
 		notAfterTime, err := time.Parse(time.RFC3339, notAfter)
 		if err == nil {
-			certificate["expired"] = time.Now().After(notAfterTime)
+			certificate.Expired = time.Now().After(notAfterTime)
 		}
 	}
 
 	// Extract SANs
 	if sans, ok := cert["subjectAltName"].([]any); ok {
-		sansList := []string{}
 		for _, san := range sans {
 			if sanStr, ok := san.(string); ok {
-				sansList = append(sansList, sanStr)
+				certificate.Sans = append(certificate.Sans, sanStr)
 			}
 		}
-		certificate["sans"] = sansList
+	}
+
+	// Extract additional certificate fields
+	if serialNumber, ok := cert["serialNumber"].(string); ok {
+		certificate.SerialNumber = serialNumber
+	}
+	if sigAlg, ok := cert["signatureAlgorithm"].(string); ok {
+		certificate.SignatureAlgorithm = sigAlg
+	}
+	if pubKeyAlg, ok := cert["publicKeyAlgorithm"].(string); ok {
+		certificate.PublicKeyAlgorithm = pubKeyAlg
+	}
+	if pubKeySize, ok := cert["publicKeySize"].(float64); ok {
+		certificate.PublicKeySize = int32(pubKeySize)
+	}
+	if fp, ok := cert["fingerprintSHA1"].(string); ok {
+		certificate.FingerprintSha1 = fp
+	}
+	if fp, ok := cert["fingerprintSHA256"].(string); ok {
+		certificate.FingerprintSha256 = fp
+	}
+	if selfSigned, ok := cert["selfSigned"].(bool); ok {
+		certificate.SelfSigned = selfSigned
 	}
 
 	return certificate
