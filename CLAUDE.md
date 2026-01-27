@@ -297,6 +297,111 @@ func (t *MyTool) Health(ctx context.Context) types.HealthStatus {
 }
 ```
 
+## Capability Reporting
+
+Tools can optionally implement `CapabilityProvider` to report runtime privileges and feature availability. This allows the framework to intelligently adapt tool invocations based on the environment.
+
+### Interface
+
+```go
+type CapabilityProvider interface {
+    Capabilities(ctx context.Context) *types.Capabilities
+}
+```
+
+### Capabilities Struct
+
+```go
+type Capabilities struct {
+    // Privilege levels
+    HasRoot      bool  // Running as root/administrator
+    HasSudo      bool  // Sudo available without password
+    CanRawSocket bool  // Can create raw sockets (ICMP, SYN scans)
+
+    // Tool-specific features
+    Features map[string]bool  // e.g., {"stealth_scan": true, "os_detection": false}
+
+    // Argument restrictions
+    BlockedArgs      []string            // Args that will fail (e.g., ["-sS", "-O"])
+    ArgAlternatives  map[string]string   // Suggested replacements (e.g., {"-sS": "-sT"})
+}
+```
+
+### Probing Helpers
+
+The SDK provides helpers for common capability checks:
+
+```go
+import "github.com/zero-day-ai/sdk/tool"
+
+// Check if running as root
+hasRoot := tool.ProbeRoot()
+
+// Check if sudo available without password
+hasSudo := tool.ProbeSudo()
+
+// Check if raw socket creation is possible
+canRaw := tool.ProbeRawSocket()
+```
+
+### Example Implementation
+
+```go
+func (t *NmapTool) Capabilities(ctx context.Context) *types.Capabilities {
+    // Probe once at startup
+    hasRoot := tool.ProbeRoot()
+    hasSudo := tool.ProbeSudo()
+    canRaw := tool.ProbeRawSocket()
+
+    caps := &types.Capabilities{
+        HasRoot:      hasRoot,
+        HasSudo:      hasSudo,
+        CanRawSocket: canRaw,
+        Features:     make(map[string]bool),
+    }
+
+    // Feature detection based on privileges
+    caps.Features["syn_scan"] = canRaw
+    caps.Features["os_detection"] = canRaw
+    caps.Features["version_detection"] = true  // Always available
+
+    // Build blocked args and alternatives
+    if !canRaw {
+        caps.BlockedArgs = []string{"-sS", "-sU", "-O", "-A"}
+        caps.ArgAlternatives = map[string]string{
+            "-sS": "-sT",  // SYN scan → TCP connect scan
+            "-sU": "",     // UDP scan not available
+            "-O":  "",     // OS detection not available
+            "-A":  "-sV",  // Aggressive scan → version detection only
+        }
+    }
+
+    return caps
+}
+```
+
+### Best Practices
+
+1. **Probe once, cache result** - Capability detection can be expensive. Probe during initialization and cache the result.
+
+2. **Default to restrictive** - If probing fails or returns uncertain results, assume no privileges. Better to fail safe.
+
+3. **Provide alternatives** - When blocking privileged arguments, always suggest unprivileged alternatives when possible:
+   ```go
+   caps.ArgAlternatives = map[string]string{
+       "-sS": "-sT",  // Good: provides alternative
+       "-O":  "",     // Acceptable: no alternative exists
+   }
+   ```
+
+4. **Document requirements** - Use features map to communicate what operations are available:
+   ```go
+   caps.Features["stealth_scan"] = false
+   caps.Features["service_detection"] = true
+   ```
+
+5. **Test degraded mode** - Always test tool behavior when running without privileges to ensure graceful degradation.
+
 ## Existing Tools
 
 ### nmap (discovery/)

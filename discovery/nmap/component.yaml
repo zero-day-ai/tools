@@ -26,3 +26,15 @@ dependencies:
   system:
     - nmap  # nmap must be installed (apt install nmap)
   env: {}
+
+# Worker configuration for queue-based execution
+worker:
+  # Nmap is I/O-bound (network scans), so higher concurrency is beneficial.
+  # Each scan spawns a separate nmap process, so memory usage scales with concurrency.
+  concurrency: 4
+
+  # Allow up to 60 seconds for graceful shutdown since scans can take time.
+  shutdown_timeout: 60s
+
+  # Heartbeat every 10 seconds to maintain health status
+  heartbeat_interval: 10s

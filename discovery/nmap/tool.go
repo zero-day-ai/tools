@@ -122,6 +122,19 @@ func (t *ToolImpl) ExecuteProto(ctx context.Context, input proto.Message) (proto
 		return nil, fmt.Errorf("at least one argument is required")
 	}
 
+	// Validate flags against capabilities
+	caps := tool.GetCapabilities(ctx, t)
+	if caps != nil {
+		if blockedFlag, alternative, blocked := validateFlags(caps, req.Args); blocked {
+			errMsg := fmt.Sprintf("flag '%s' requires elevated privileges and is blocked", blockedFlag)
+			if alternative != "" {
+				errMsg = fmt.Sprintf("%s. Try using '%s' instead", errMsg, alternative)
+			}
+			return nil, toolerr.New(ToolName, "validate", toolerr.ErrCodeInvalidInput, errMsg).
+				WithClass(toolerr.ErrorClassSemantic)
+		}
+	}
+
 	// Build command arguments: -oX - (XML output to stdout) + user args + targets
 	args := []string{"-oX", "-"}
 	args = append(args, req.Args...)
@@ -474,5 +487,17 @@ func classifyExecutionError(err error) toolerr.ErrorClass {
 
 	// Default to transient for unknown execution errors
 	return toolerr.ErrorClassTransient
+}
+
+// validateFlags checks if any requested flags are blocked by capabilities.
+// Returns the blocked flag, its alternative (if available), and whether a block was found.
+func validateFlags(caps *types.Capabilities, flags []string) (blockedFlag string, alternative string, blocked bool) {
+	for _, flag := range flags {
+		if caps.IsArgBlocked(flag) {
+			alt, _ := caps.GetAlternative(flag)
+			return flag, alt, true
+		}
+	}
+	return "", "", false
 }
 

@@ -1,0 +1,95 @@
+# Dockerfile for nmap worker
+# This creates a containerized worker that processes nmap scans from a Redis work queue.
+#
+# Build:
+#   docker build -f Dockerfile.worker -t nmap-worker:latest .
+#
+# Run:
+#   docker run -e REDIS_URL=redis://localhost:6379 nmap-worker:latest
+
+# Stage 1: Build the Go binary
+FROM golang:1.24-bookworm AS builder
+
+LABEL maintainer="Zero-Day.AI <anthony@zero-day.ai>" \
+      description="Nmap worker for Gibson tool work queue" \
+      version="1.0.0"
+
+WORKDIR /build
+
+# Copy go.mod and go.sum first for better layer caching
+COPY go.mod go.sum ./
+RUN go mod download
+
+# Copy source code
+COPY . .
+
+# Build the worker binary
+# CGO_ENABLED=0 for static binary (no libc dependency)
+# GOOS=linux ensures Linux binary regardless of build platform
+RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo \
+    -ldflags '-extldflags "-static" -s -w' \
+    -o nmap-worker ./cmd/worker
+
+# Stage 2: Runtime image with nmap
+FROM debian:bookworm-slim
+
+LABEL maintainer="Zero-Day.AI <anthony@zero-day.ai>" \
+      description="Nmap worker for Gibson tool work queue" \
+      version="1.0.0"
+
+# Install nmap and clean up in a single layer to minimize image size
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    nmap \
+    ca-certificates && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
+
+# Create non-root user for security
+# The nmap user won't have root privileges but can still run most nmap scans
+RUN groupadd -r nmap && useradd -r -g nmap -u 1000 nmap
+
+# Create directory for nmap data files
+RUN mkdir -p /home/nmap && chown nmap:nmap /home/nmap
+
+# Copy the worker binary from builder stage
+COPY --from=builder /build/nmap-worker /usr/local/bin/nmap-worker
+RUN chmod +x /usr/local/bin/nmap-worker
+
+# Switch to non-root user
+USER nmap
+
+# Set working directory
+WORKDIR /home/nmap
+
+# Environment variables (can be overridden at runtime)
+# REDIS_URL: Redis connection string (required)
+ENV REDIS_URL=""
+
+# CONCURRENCY: Number of concurrent worker goroutines (default: 4)
+ENV CONCURRENCY=4
+
+# LOG_LEVEL: Logging verbosity (debug, info, warn, error)
+ENV LOG_LEVEL="info"
+
+# Set entrypoint to worker binary
+ENTRYPOINT ["/usr/local/bin/nmap-worker"]
+
+# Default arguments - can be overridden in docker run or k8s manifest
+# Example overrides:
+#   docker run nmap-worker:latest --concurrency=8
+#   docker run nmap-worker:latest --redis-url=redis://custom:6379
+CMD ["--concurrency=4"]
+
+# Healthcheck to verify worker is responsive
+# This checks if the process is running and Redis is reachable
+HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
+    CMD pgrep -x nmap-worker || exit 1
+
+# Document exposed capabilities and limitations
+# NOTE: Running as non-root user limits some nmap scan types:
+#   - SYN scans (-sS) require root/CAP_NET_RAW
+#   - OS detection (-O) requires root
+#   - UDP scans (-sU) require root
+# For privileged scans, run with --user=root or add CAP_NET_RAW capability:
+#   docker run --cap-add=NET_RAW --cap-add=NET_ADMIN nmap-worker:latest
